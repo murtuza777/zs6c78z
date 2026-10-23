@@ -26,6 +26,17 @@ class DataCoverage(BaseModel):
     off_schedule_runs: list[datetime]
 
 
+class BandSettings(BaseModel):
+    lower_quantile: float
+    upper_quantile: float
+    bucket_h: float
+    min_obs: int
+    min_days: int
+    min_energy_days: int
+    method: str
+    energy_method: str
+
+
 class MetaResponse(BaseModel):
     decision_date_min: date
     decision_date_max: date
@@ -36,6 +47,7 @@ class MetaResponse(BaseModel):
     publish_slots_uk: list[str]
     horizon_h_max: float
     horizon_bucket_h: float
+    band: BandSettings
     timezone: str
     units: dict[str, str]
     error_convention: str

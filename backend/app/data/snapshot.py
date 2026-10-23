@@ -2,6 +2,9 @@
 
 import hashlib
 import json
+import os
+import shutil
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,6 +81,42 @@ def write_snapshot(
     }
     (directory / MANIFEST_FILE).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
+
+
+def publish_snapshot(
+    directory: Path,
+    actuals: pd.DataFrame,
+    forecasts: pd.DataFrame,
+    manifest_fields: dict[str, Any],
+) -> dict[str, Any]:
+    """Write a snapshot to a staging directory, verify it, then swap it into place.
+
+    The live snapshot is replaced only after the new one has been written and re-loaded with
+    checksum verification, so a crash or failed write never leaves a half-written snapshot.
+    """
+    parent = directory.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    staging = parent / f".{directory.name}.staging-{uuid.uuid4().hex[:8]}"
+    backup = parent / f".{directory.name}.previous"
+    try:
+        manifest = write_snapshot(staging, actuals, forecasts, manifest_fields)
+        load_snapshot(staging)  # round-trip verification before going live
+        if backup.exists():
+            shutil.rmtree(backup)
+        if directory.exists():
+            os.replace(directory, backup)
+        try:
+            os.replace(staging, directory)
+        except OSError:
+            if backup.exists() and not directory.exists():
+                os.replace(backup, directory)  # restore the previous snapshot
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
+        return manifest
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 def load_snapshot(directory: Path, *, verify_checksums: bool = True) -> Snapshot:

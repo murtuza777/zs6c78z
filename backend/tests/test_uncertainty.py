@@ -3,7 +3,15 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 
-from app.domain.uncertainty import MIN_OBS, apply_band, evaluate_coverage, quantile_table
+from app.domain.uncertainty import (
+    MIN_OBS,
+    apply_band,
+    daily_energy_band,
+    daily_energy_errors,
+    evaluate_coverage,
+    evaluate_daily_energy_coverage,
+    quantile_table,
+)
 
 
 def pool_for(days: int, per_day: int, bucket: float = 12.0, error=lambda d, i: float(i)):
@@ -80,3 +88,56 @@ def test_held_out_coverage_is_near_nominal_for_well_behaved_errors():
     result = evaluate_coverage(aligned, pool)
     assert result["available"] and result["n_evaluated"] == 720
     assert 72 <= result["coverage_pct"] <= 88
+
+
+# ----------------------------------------------------------------- daily energy band
+def energy_aligned(days: int, error_per_hour=lambda d: 100.0, missing_day: int | None = None):
+    rows = []
+    for d in range(days):
+        day = date(2026, 1, 2) + timedelta(days=d)
+        for h in range(24):
+            forecast = 5000.0
+            actual = forecast - error_per_hour(d)
+            if missing_day == d and h == 0:
+                actual = np.nan
+            rows.append(
+                {
+                    "delivery_date": day,
+                    "forecast_mw": forecast,
+                    "actual_mw": actual,
+                    "error_mw": forecast - actual,
+                    "horizon_h": 14.5 + h,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_daily_energy_errors_sum_matched_hours_and_flag_incomplete_days():
+    errors = daily_energy_errors(energy_aligned(3, missing_day=1))
+    assert errors.loc[date(2026, 1, 2), "error_mwh"] == 2400.0
+    assert errors.loc[date(2026, 1, 2), "complete"]
+    assert not errors.loc[date(2026, 1, 3), "complete"]
+    assert errors.loc[date(2026, 1, 3), "forecast_mwh"] == 23 * 5000.0
+
+
+def test_daily_energy_band_is_leave_one_day_out_and_needs_enough_days():
+    errors = daily_energy_errors(energy_aligned(12, error_per_hour=lambda d: 1e6 if d == 0 else d))
+    band = daily_energy_band(errors, date(2026, 1, 2), forecast_mwh=120_000.0)
+    assert band is not None and band["n_days"] == 11
+    assert band["p90_mwh"] <= 120_000.0 and band["p10_mwh"] > 100_000.0  # day 0 excluded
+    few = daily_energy_errors(energy_aligned(5))
+    assert daily_energy_band(few, date(2026, 1, 2), 120_000.0) is None
+
+
+def test_daily_energy_band_is_clipped_at_zero():
+    errors = daily_energy_errors(energy_aligned(12, error_per_hour=lambda d: 4000.0 + d))
+    band = daily_energy_band(errors, date(2026, 1, 2), forecast_mwh=10_000.0)
+    assert band["p10_mwh"] == 0.0
+
+
+def test_daily_energy_coverage_counts_only_complete_days():
+    errors = daily_energy_errors(energy_aligned(15, error_per_hour=lambda d: d * 10, missing_day=3))
+    days = list(errors.index)
+    result = evaluate_daily_energy_coverage(errors, days)
+    assert result["n_days"] == 14
+    assert 0 <= result["coverage_pct"] <= 100

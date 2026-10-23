@@ -1,13 +1,16 @@
 """Application service: snapshot-backed analytics with per-gate memoisation.
 
 The snapshot is immutable, so selections/alignments are computed once per gate and reused.
-Cached frames are never mutated; callers take copies before adding columns.
+Cached frames are never mutated; callers take copies before adding columns. Cache keys come
+from user input (any HH:MM gate, any date range), so every cache is a bounded LRU.
 """
 
 import math
 import threading
+from collections import OrderedDict
+from collections.abc import Callable, Hashable
 from datetime import date, time, timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 import pandas as pd
 
@@ -28,14 +31,21 @@ from app.domain.market import (
 from app.domain.metrics import Metrics, error_histogram, summarize
 from app.domain.uncertainty import (
     BUCKET_WIDTH_H,
+    ENERGY_METHOD,
+    LOWER_Q,
     METHOD,
     MIN_DAYS,
+    MIN_ENERGY_DAYS,
     MIN_OBS,
     NOMINAL_COVERAGE_PCT,
+    UPPER_Q,
     apply_band,
     bucket_label,
+    daily_energy_band,
+    daily_energy_errors,
     error_pool,
     evaluate_coverage,
+    evaluate_daily_energy_coverage,
     horizon_bucket,
     quantile_table,
 )
@@ -43,6 +53,32 @@ from app.domain.uncertainty import (
 HORIZON_H_MAX = 48.0
 HISTOGRAM_BIN_MW = 250.0
 MAX_HORIZON_RANGE_DAYS = 31
+T = TypeVar("T")
+
+
+class BoundedMemo:
+    """Thread-safe LRU memo with a hard size cap (protects memory on a public API)."""
+
+    def __init__(self, maxsize: int) -> None:
+        self._data: OrderedDict[Hashable, Any] = OrderedDict()
+        self._maxsize = maxsize
+        self._lock = threading.Lock()
+
+    def get(self, key: Hashable, compute: Callable[[], T]) -> T:
+        with self._lock:
+            if key in self._data:
+                self._data.move_to_end(key)
+                return self._data[key]  # type: ignore[no-any-return]
+        value = compute()  # outside the lock: a rare duplicate computation is harmless
+        with self._lock:
+            self._data[key] = value
+            self._data.move_to_end(key)
+            while len(self._data) > self._maxsize:
+                self._data.popitem(last=False)
+        return value
+
+    def __len__(self) -> int:
+        return len(self._data)
 
 
 class RequestError(ValueError):
@@ -70,6 +106,20 @@ def _metrics(m: Metrics) -> dict[str, Any]:
     return m.to_dict()
 
 
+def _typical_error(pool: pd.DataFrame, buckets: list[float], basis: str) -> dict[str, Any]:
+    abs_err = pool["error_mw"].abs()
+    empty = pool.empty
+    return {
+        "mae_mw": None if empty else _clean(abs_err.mean()),
+        "p90_abs_error_mw": None if empty else _clean(abs_err.quantile(0.9)),
+        "bias_mw": None if empty else _clean(pool["error_mw"].mean()),
+        "n_obs": len(pool),
+        "n_days": int(pool["delivery_date"].nunique()),
+        "horizon_buckets": [bucket_label(b) for b in buckets],
+        "basis": basis,
+    }
+
+
 def _gate_info(gate: time) -> dict[str, Any]:
     preset = preset_for(gate)
     return {
@@ -87,11 +137,11 @@ class AnalyticsService:
         self.hourly = hourly_actuals(snapshot.actuals)
         self.delivery_min = DECISION_START + timedelta(days=1)
         self.delivery_max = DECISION_END + timedelta(days=1)
-        self._lock = threading.Lock()
-        self._aligned: dict[time, pd.DataFrame] = {}
-        self._pools: dict[time, pd.DataFrame] = {}
-        self._vintages: dict[tuple[date, date], list[dict[str, Any]]] = {}
-        self._coverage: dict[tuple[date, date, time], dict[str, Any]] = {}
+        self._aligned = BoundedMemo(16)
+        self._pools = BoundedMemo(16)
+        self._energy = BoundedMemo(16)
+        self._vintages = BoundedMemo(32)
+        self._coverage = BoundedMemo(64)
 
     # ----------------------------------------------------------------- caches
     @property
@@ -100,39 +150,36 @@ class AnalyticsService:
         return {"version": self.snapshot.version, "created_at": manifest["created_at"]}
 
     def aligned_for_gate(self, gate: time) -> pd.DataFrame:
-        with self._lock:
-            if gate not in self._aligned:
-                self._aligned[gate] = reports.align_decisions(
-                    self.forecasts, self.hourly, decision_dates(), gate
-                )
-            return self._aligned[gate]
+        return self._aligned.get(
+            gate,
+            lambda: reports.align_decisions(self.forecasts, self.hourly, decision_dates(), gate),
+        )
 
     def pool_for_gate(self, gate: time) -> pd.DataFrame:
-        aligned = self.aligned_for_gate(gate)
-        with self._lock:
-            if gate not in self._pools:
-                self._pools[gate] = error_pool(aligned)
-            return self._pools[gate]
+        return self._pools.get(gate, lambda: error_pool(self.aligned_for_gate(gate)))
+
+    def energy_errors_for_gate(self, gate: time) -> pd.DataFrame:
+        return self._energy.get(gate, lambda: daily_energy_errors(self.aligned_for_gate(gate)))
 
     def _vintage_rows(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
-        key = (from_date, to_date)
-        with self._lock:
-            if key not in self._vintages:
-                deliveries = [d + timedelta(days=1) for d in decision_dates(from_date, to_date)]
-                self._vintages[key] = reports.vintage_comparison(
-                    self.forecasts, self.hourly, deliveries, time(23, 59)
-                )
-            return self._vintages[key]
+        deliveries = [d + timedelta(days=1) for d in decision_dates(from_date, to_date)]
+        return self._vintages.get(
+            (from_date, to_date),
+            lambda: reports.vintage_comparison(
+                self.forecasts, self.hourly, deliveries, time(23, 59)
+            ),
+        )
 
     def _coverage_for(
         self, from_date: date, to_date: date, gate: time, aligned: pd.DataFrame
     ) -> dict[str, Any]:
-        key = (from_date, to_date, gate)
-        pool = self.pool_for_gate(gate)
-        with self._lock:
-            if key not in self._coverage:
-                self._coverage[key] = evaluate_coverage(aligned, pool)
-            return self._coverage[key]
+        def compute() -> dict[str, Any]:
+            hourly = evaluate_coverage(aligned, self.pool_for_gate(gate))
+            days = sorted(aligned["delivery_date"].unique())
+            daily = evaluate_daily_energy_coverage(self.energy_errors_for_gate(gate), days)
+            return {**hourly, "daily_energy": daily}
+
+        return self._coverage.get((from_date, to_date, gate), compute)
 
     # ------------------------------------------------------------- validation
     def _check_decision_date(self, value: date, field: str) -> None:
@@ -178,7 +225,15 @@ class AnalyticsService:
         forecast_summary = None
         if not with_forecast.empty:
             publish_times = sorted(with_forecast["publish_time"].unique())
-            band_complete = with_forecast["band_p10_mw"].notna().all()
+            forecast_mwh = float(with_forecast["forecast_mw"].sum())
+            # A daily range is only meaningful for a forecast that covers every delivery hour.
+            energy_band = (
+                daily_energy_band(
+                    self.energy_errors_for_gate(gate), ctx.delivery_date, forecast_mwh
+                )
+                if len(with_forecast) == len(day)
+                else None
+            )
             stale_since, repeated_runs = reports.unchanged_since(
                 self.forecasts, pd.Timestamp(publish_times[-1]), ctx
             )
@@ -190,34 +245,33 @@ class AnalyticsService:
                 "horizon_min_h": float(with_forecast["horizon_h"].min()),
                 "horizon_max_h": float(with_forecast["horizon_h"].max()),
                 "hours_with_forecast": len(with_forecast),
-                "energy_gwh": float(with_forecast["forecast_mw"].sum() / 1000),
+                "hours_expected": len(day),
+                "energy_gwh": forecast_mwh / 1000,
                 "peak_mw": float(with_forecast["forecast_mw"].max()),
                 "peak_time": with_forecast["forecast_mw"].idxmax().to_pydatetime(),
                 "min_mw": float(with_forecast["forecast_mw"].min()),
                 "min_time": with_forecast["forecast_mw"].idxmin().to_pydatetime(),
-                "band_p10_energy_gwh": float(with_forecast["band_p10_mw"].sum() / 1000)
-                if band_complete
-                else None,
-                "band_p90_energy_gwh": float(with_forecast["band_p90_mw"].sum() / 1000)
-                if band_complete
-                else None,
+                "band_p10_energy_gwh": energy_band["p10_mwh"] / 1000 if energy_band else None,
+                "band_p90_energy_gwh": energy_band["p90_mwh"] / 1000 if energy_band else None,
+                "energy_band_n_days": int(energy_band["n_days"]) if energy_band else 0,
+                "energy_band_method": ENERGY_METHOD,
             }
 
         day_buckets = sorted(set(day["horizon_bucket"].dropna()))
-        other = pool.loc[
-            (pool["delivery_date"] != ctx.delivery_date) & pool["bucket"].isin(day_buckets)
-        ]
-        abs_err = other["error_mw"].abs()
-        typical = {
-            "mae_mw": _clean(abs_err.mean()) if len(other) else None,
-            "p90_abs_error_mw": _clean(abs_err.quantile(0.9)) if len(other) else None,
-            "bias_mw": _clean(other["error_mw"].mean()) if len(other) else None,
-            "n_obs": len(other),
-            "n_days": int(other["delivery_date"].nunique()),
-            "horizon_buckets": [bucket_label(b) for b in day_buckets],
-            "basis": "All other January delivery days at the same gate and lead-time buckets "
-            "(leave-one-day-out).",
-        }
+        same_buckets = pool["bucket"].isin(day_buckets)
+        typical = _typical_error(
+            pool.loc[same_buckets & (pool["delivery_date"] != ctx.delivery_date)],
+            day_buckets,
+            "Pilot calibration: all other January delivery days at the same gate and lead-time "
+            "buckets (leave-one-day-out). Includes days after this decision.",
+        )
+        # What the desk could actually have known: delivery days that ended before day D began.
+        known = _typical_error(
+            pool.loc[same_buckets & (pool["delivery_date"] < ctx.decision_date)],
+            day_buckets,
+            "Known at gate: only delivery days completed before the decision day, same gate "
+            "and lead-time buckets.",
+        )
 
         band_available = bool(day["band_p10_mw"].notna().any())
         band = {
@@ -251,6 +305,7 @@ class AnalyticsService:
             "delivery_end_utc": ctx.delivery_end_utc.to_pydatetime(),
             "forecast": forecast_summary,
             "typical_error": typical,
+            "typical_error_known_at_gate": known,
             "band": band,
             "hindsight_metrics": _metrics(summarize(day)),
             "rows": rows,
@@ -309,7 +364,7 @@ class AnalyticsService:
         vintages = [
             {
                 **v,
-                "available_at_gate": time.fromisoformat(v["slot"]) <= gate,
+                "available_at_gate": time.fromisoformat(v["latest_publish_uk"]) <= gate,
                 "metrics": _metrics(v["metrics"]),
             }
             for v in self._vintage_rows(from_date, to_date)
@@ -434,6 +489,16 @@ class AnalyticsService:
             "publish_slots_uk": [s.strftime("%H:%M") for s in slots],
             "horizon_h_max": HORIZON_H_MAX,
             "horizon_bucket_h": float(BUCKET_WIDTH_H),
+            "band": {
+                "lower_quantile": LOWER_Q,
+                "upper_quantile": UPPER_Q,
+                "bucket_h": float(BUCKET_WIDTH_H),
+                "min_obs": MIN_OBS,
+                "min_days": MIN_DAYS,
+                "min_energy_days": MIN_ENERGY_DAYS,
+                "method": METHOD,
+                "energy_method": ENERGY_METHOD,
+            },
             "timezone": "Europe/London",
             "units": {"power": "MW", "energy": "MWh (GWh in summaries)", "time": "ISO-8601 UTC"},
             "error_convention": "error_mw = forecast_mw - actual_mw (positive = over-forecast)",

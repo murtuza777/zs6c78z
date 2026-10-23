@@ -27,6 +27,7 @@ class HorizonAccuracy(BaseModel):
 class VintageAccuracy(BaseModel):
     slot: str = Field(description="Scheduled UK-local publication slot on D-1, HH:MM")
     publish_day: str
+    latest_publish_uk: str = Field(description="Latest actual publication time among its runs")
     available_at_gate: bool
     n_days: int
     n_runs_off_schedule: int = Field(description="Late runs assigned to this slot")
@@ -52,6 +53,11 @@ class BucketCoverage(BaseModel):
     coverage_pct: float
 
 
+class DailyEnergyCoverage(BaseModel):
+    n_days: int
+    coverage_pct: float | None
+
+
 class BandCoverage(BaseModel):
     available: bool
     n_evaluated: int
@@ -59,6 +65,7 @@ class BandCoverage(BaseModel):
     nominal_pct: float
     method: str
     by_bucket: list[BucketCoverage]
+    daily_energy: DailyEnergyCoverage
 
 
 class AccuracyResponse(BaseModel):

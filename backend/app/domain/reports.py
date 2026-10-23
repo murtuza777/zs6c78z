@@ -146,15 +146,18 @@ def vintage_comparison(
     )
     out = []
     for slot, frame in combined.groupby("slot", sort=True):
+        slot_runs = frame.drop_duplicates("publish_time")
+        # Availability follows the real publication times: a late run (e.g. 12:25 filling the
+        # 11:30 slot) is not available to a 12:00 gate even though its slot is earlier.
+        latest = max(pd.DatetimeIndex(slot_runs["publish_time"]).tz_convert(UK_TZ).time)
         out.append(
             {
                 "slot": slot.strftime("%H:%M"),
                 "publish_day": "D-1",
-                "available_at_gate": slot <= gate,
+                "latest_publish_uk": latest.strftime("%H:%M"),
+                "available_at_gate": latest <= gate,
                 "n_days": int(frame["delivery_date"].nunique()),
-                "n_runs_off_schedule": int(
-                    (~frame.drop_duplicates("publish_time")["on_schedule"]).sum()
-                ),
+                "n_runs_off_schedule": int((~slot_runs["on_schedule"]).sum()),
                 "metrics": summarize(frame),
             }
         )

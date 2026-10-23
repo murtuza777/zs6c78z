@@ -30,13 +30,18 @@ class ForecastSummary(BaseModel):
     horizon_min_h: float
     horizon_max_h: float
     hours_with_forecast: int
-    energy_gwh: float
+    hours_expected: int
+    energy_gwh: float = Field(description="Forecast energy over the hours that have a forecast")
     peak_mw: float
     peak_time: datetime
     min_mw: float
     min_time: datetime
-    band_p10_energy_gwh: float | None
+    band_p10_energy_gwh: float | None = Field(
+        description="Empirical P10 of delivery-day energy (daily-error quantiles, LODO)"
+    )
     band_p90_energy_gwh: float | None
+    energy_band_n_days: int
+    energy_band_method: str
     unchanged_since: datetime = Field(
         description="Earliest run whose delivery-day values the selected run repeats exactly"
     )
@@ -92,7 +97,10 @@ class DecisionResponse(BaseModel):
     delivery_start_utc: datetime
     delivery_end_utc: datetime
     forecast: ForecastSummary | None
-    typical_error: TypicalError
+    typical_error: TypicalError = Field(description="Pilot calibration over all other days")
+    typical_error_known_at_gate: TypicalError = Field(
+        description="Only delivery days completed before the decision day"
+    )
     band: BandInfo
     hindsight_metrics: MetricsOut
     rows: list[DecisionRow]

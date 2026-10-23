@@ -99,3 +99,13 @@ def test_horizon_view_never_uses_forecasts_newer_than_target_minus_h():
     lead = (view.index.to_series() - view["publish_time"]).dt.total_seconds() / 3600
     assert (lead.dropna() >= 20).all()
     assert len(view) == 24
+
+
+def test_vintage_availability_follows_actual_publish_times_of_late_runs():
+    hourly = hourly_actuals(f.actuals("2026-01-16T00:00", 48, 900))
+    rows = reports.vintage_comparison(january_runs(), hourly, [date(2026, 1, 16)], time(12, 0))
+    late_slot = {r["slot"]: r for r in rows}["11:30"]
+    assert late_slot["latest_publish_uk"] == "12:25"
+    assert late_slot["available_at_gate"] is False  # the 12:25 run was not out by 12:00
+    rows = reports.vintage_comparison(january_runs(), hourly, [date(2026, 1, 16)], time(12, 30))
+    assert {r["slot"]: r for r in rows}["11:30"]["available_at_gate"] is True

@@ -132,3 +132,68 @@ def evaluate_coverage(aligned: pd.DataFrame, pool: pd.DataFrame) -> dict[str, ob
         "nominal_pct": NOMINAL_COVERAGE_PCT,
         "by_bucket": by_bucket,
     }
+
+
+# --------------------------------------------------------------------------- daily energy band
+# Hourly quantiles do not add up to a daily quantile, so the delivery-day energy range is built
+# from the distribution of *daily* energy errors instead (same leave-one-day-out rule).
+MIN_ENERGY_DAYS = 10
+ENERGY_METHOD = (
+    "Empirical 10th-90th percentile of daily energy errors (forecast - actual, MWh) of other "
+    "fully matched January delivery days at the same gate, leave-one-day-out."
+)
+
+
+def daily_energy_errors(aligned: pd.DataFrame) -> pd.DataFrame:
+    """Per delivery day: matched-hour energies, energy error, and whether all hours matched."""
+    frame = aligned.assign(
+        matched=aligned["forecast_mw"].notna() & aligned["actual_mw"].notna(),
+    )
+    rows = []
+    for day, g in frame.groupby("delivery_date", sort=True):
+        m = g.loc[g["matched"]]
+        rows.append(
+            {
+                "delivery_date": day,
+                "forecast_mwh": float(m["forecast_mw"].sum()),
+                "actual_mwh": float(m["actual_mw"].sum()),
+                "error_mwh": float(m["error_mw"].sum()),
+                "complete": bool(len(m) == len(g) and len(g) > 0),
+            }
+        )
+    columns = ["forecast_mwh", "actual_mwh", "error_mwh", "complete"]
+    if not rows:
+        return pd.DataFrame(columns=columns, index=pd.Index([], name="delivery_date"))
+    return pd.DataFrame(rows).set_index("delivery_date")[columns]
+
+
+def daily_energy_band(
+    errors: pd.DataFrame, exclude_day: date, forecast_mwh: float
+) -> dict[str, float | int] | None:
+    """P10/P90 of delivery-day energy for a forecast total, or None if history is too thin."""
+    pool = errors.loc[errors["complete"] & (errors.index != exclude_day), "error_mwh"]
+    if len(pool) < MIN_ENERGY_DAYS:
+        return None
+    q_lo, q_hi = pool.quantile([LOWER_Q, UPPER_Q]).to_numpy(dtype=float)
+    return {
+        "p10_mwh": max(0.0, forecast_mwh - q_hi),
+        "p90_mwh": max(0.0, forecast_mwh - q_lo),
+        "n_days": len(pool),
+    }
+
+
+def evaluate_daily_energy_coverage(errors: pd.DataFrame, days: list[date]) -> dict[str, object]:
+    """Share of fully matched days in ``days`` whose actual energy lies in their LODO band."""
+    evaluated = inside = 0
+    for day in days:
+        if day not in errors.index or not errors.loc[day, "complete"]:
+            continue
+        band = daily_energy_band(errors, day, float(errors.loc[day, "forecast_mwh"]))
+        if band is None:
+            continue
+        evaluated += 1
+        inside += band["p10_mwh"] <= errors.loc[day, "actual_mwh"] <= band["p90_mwh"]
+    return {
+        "n_days": evaluated,
+        "coverage_pct": float(100.0 * inside / evaluated) if evaluated else None,
+    }

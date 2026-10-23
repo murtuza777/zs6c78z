@@ -169,3 +169,55 @@ def test_openapi_documents_all_routes(client):
         "/api/v1/accuracy",
         "/api/v1/horizon",
     } <= set(paths)
+
+
+def test_decision_separates_known_at_gate_error_from_pilot_calibration(client):
+    mid = client.get("/api/v1/decisions/2026-01-15").json()
+    assert mid["typical_error"]["n_days"] == 30
+    assert mid["typical_error_known_at_gate"]["n_days"] == 13  # deliveries 2..14 Jan
+    assert "Includes days after this decision" in mid["typical_error"]["basis"]
+    first = client.get("/api/v1/decisions/2026-01-01").json()
+    assert first["typical_error_known_at_gate"]["n_days"] == 0
+    assert first["typical_error_known_at_gate"]["mae_mw"] is None
+
+
+def test_daily_energy_band_uses_daily_errors_and_needs_full_coverage(client):
+    body = client.get("/api/v1/decisions/2026-01-15").json()["forecast"]
+    assert body["hours_expected"] == 24 and body["energy_band_n_days"] >= 10
+    assert body["band_p10_energy_gwh"] <= body["band_p90_energy_gwh"]
+    # Gate 00:00 on 1 Jan: only Dec 31 runs exist, which stop at 21:00 on the delivery day.
+    partial = client.get("/api/v1/decisions/2026-01-01", params={"gate": "00:00"}).json()
+    assert partial["forecast"]["hours_with_forecast"] == 22
+    assert partial["forecast"]["band_p10_energy_gwh"] is None
+    assert partial["data_quality"]["missing_forecast_hours"] == [
+        "2026-01-02T22:00:00Z",
+        "2026-01-02T23:00:00Z",
+    ]
+
+
+def test_accuracy_reports_daily_energy_band_coverage(client):
+    coverage = client.get("/api/v1/accuracy").json()["band_coverage"]
+    assert coverage["daily_energy"]["n_days"] >= 10
+    assert coverage["daily_energy"]["coverage_pct"] is not None
+
+
+def test_meta_exposes_band_settings_used_by_the_methodology_page(client):
+    band = client.get("/api/v1/meta").json()["band"]
+    assert band == {
+        **band,
+        "min_obs": 48,
+        "min_days": 10,
+        "lower_quantile": 0.1,
+        "upper_quantile": 0.9,
+    }
+
+
+def test_caches_stay_bounded_under_many_custom_gates(client):
+    from app.api.deps import get_service
+
+    for minute in range(40):
+        assert (
+            client.get("/api/v1/accuracy", params={"gate": f"10:{minute:02d}"}).status_code == 200
+        )
+    service = get_service()
+    assert len(service._aligned) <= 16 and len(service._coverage) <= 64

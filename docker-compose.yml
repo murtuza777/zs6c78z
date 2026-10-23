@@ -17,9 +17,10 @@ services:
     build: .
     image: winddesk:local
     user: root
-    command: ["python", "backend/scripts/ingest.py", "--out", "/snapshot"]
+    # The parent directory is mounted so the new snapshot can be swapped in atomically.
+    command: ["python", "backend/scripts/ingest.py", "--out", "/app/backend/data/snapshot"]
     volumes:
-      - ./backend/data/snapshot:/snapshot
+      - ./backend/data:/app/backend/data
     env_file:
       - path: .env
         required: false
