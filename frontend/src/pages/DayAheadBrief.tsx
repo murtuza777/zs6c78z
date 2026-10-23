@@ -33,6 +33,9 @@ import { readDay } from '../lib/insights';
 import { parseDateParam, parseGateParam } from '../lib/params';
 import { cx } from '../lib/cx';
 
+/** Runs repeating identical values before we flag the feed as stale. */
+const STALE_RUNS = 2;
+
 export function DayAheadBrief() {
   const meta = useMeta();
   if (meta.isPending) return <LoadingState label="Loading scope…" />;
@@ -154,6 +157,15 @@ function BriefBody({
             <span className="text-warning">No forecast had been published before this gate.</span>
           )}
           <span className="ml-auto flex flex-wrap gap-2">
+            {forecast && forecast.repeated_runs >= STALE_RUNS && (
+              <StatusPill
+                status="warning"
+                title="Consecutive WINDFOR runs published identical values for this delivery day, so the forecast had not been refreshed. A live version would alert the desk."
+              >
+                Stale feed: values unchanged since {fmtUkDateTime(forecast.unchanged_since)} UK (
+                {forecast.repeated_runs} repeated runs)
+              </StatusPill>
+            )}
             <StatusPill status={dq.hours_with_forecast === dq.expected_hours ? 'good' : 'warning'}>
               Forecast {dq.hours_with_forecast}/{dq.expected_hours} h
             </StatusPill>

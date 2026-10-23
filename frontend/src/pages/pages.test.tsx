@@ -44,6 +44,9 @@ describe('Day-Ahead Brief', () => {
     expect(api.decision).toHaveBeenCalledWith('2026-01-15', '09:50');
     expect(screen.getAllByText('240.0 GWh').length).toBeGreaterThan(0); // KPI + revision row
     expect(screen.getByText(/Actuals are hidden/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Stale feed: values unchanged since Wed 14 Jan 18:30 UK/),
+    ).toBeInTheDocument();
     expect(screen.queryByText('What actually happened')).not.toBeInTheDocument();
   });
 

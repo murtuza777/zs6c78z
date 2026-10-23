@@ -1,7 +1,8 @@
 """Checks against the committed January 2026 snapshot (the data the deployed app serves)."""
 
-from datetime import time
+from datetime import date, time
 
+import pandas as pd
 import pytest
 
 from app.config import BACKEND_DIR
@@ -45,6 +46,16 @@ def test_no_selected_forecast_is_published_after_the_cutoff(snapshot, gate):
         assert (selected.index > selected["publish_time"]).all()
         assert (selected.index >= ctx.delivery_start_utc).all()
         assert (selected.index < ctx.delivery_end_utc).all()
+
+
+def test_stale_feed_before_worst_day_is_detected(snapshot):
+    # 26 Jan 18:30 -> 27 Jan 09:30: five consecutive runs repeated identical values.
+    ctx = decision_context(date(2026, 1, 27), time(9, 50))
+    since, repeated = reports.unchanged_since(
+        snapshot.forecasts, pd.Timestamp("2026-01-27T09:30", tz="UTC"), ctx
+    )
+    assert since == pd.Timestamp("2026-01-26T18:30", tz="UTC")
+    assert repeated == 5
 
 
 @pytest.mark.parametrize("preset", GATE_PRESETS, ids=lambda p: p.id)

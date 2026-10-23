@@ -187,6 +187,36 @@ def revision_history(forecasts: pd.DataFrame, ctx: DecisionContext) -> list[dict
     return out
 
 
+def unchanged_since(
+    forecasts: pd.DataFrame, selected_publish: pd.Timestamp, ctx: DecisionContext
+) -> tuple[pd.Timestamp, int]:
+    """Walk back over consecutive earlier runs that repeat the selected run's delivery-day values.
+
+    Returns the earliest such run's publish time and how many earlier runs were identical. A long
+    streak means the feed did not update, so the forecast is older than its publishTime suggests.
+    """
+    genuine = genuine_predictions(forecasts)
+    window = genuine.loc[
+        (genuine["start_time"] >= ctx.delivery_start_utc)
+        & (genuine["start_time"] < ctx.delivery_end_utc)
+        & (genuine["publish_time"] <= selected_publish)
+    ]
+    by_run = {
+        p: g.set_index("start_time")["generation_mw"] for p, g in window.groupby("publish_time")
+    }
+    reference = by_run.get(selected_publish)
+    earliest, repeated = selected_publish, 0
+    if reference is None:
+        return earliest, repeated
+    for publish in sorted(by_run, reverse=True)[1:]:
+        other = by_run[publish]
+        common = reference.index.intersection(other.index)
+        if common.empty or not (reference.loc[common] == other.loc[common]).all():
+            break
+        earliest, repeated = publish, repeated + 1
+    return pd.Timestamp(earliest), repeated
+
+
 def horizon_view(
     forecasts: pd.DataFrame, hourly: pd.DataFrame, from_date: date, to_date: date, horizon_h: float
 ) -> pd.DataFrame:

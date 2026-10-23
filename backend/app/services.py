@@ -179,8 +179,13 @@ class AnalyticsService:
         if not with_forecast.empty:
             publish_times = sorted(with_forecast["publish_time"].unique())
             band_complete = with_forecast["band_p10_mw"].notna().all()
+            stale_since, repeated_runs = reports.unchanged_since(
+                self.forecasts, pd.Timestamp(publish_times[-1]), ctx
+            )
             forecast_summary = {
                 "primary_publish_time": pd.Timestamp(publish_times[-1]).to_pydatetime(),
+                "unchanged_since": stale_since.to_pydatetime(),
+                "repeated_runs": repeated_runs,
                 "publish_times": [pd.Timestamp(t).to_pydatetime() for t in publish_times],
                 "horizon_min_h": float(with_forecast["horizon_h"].min()),
                 "horizon_max_h": float(with_forecast["horizon_h"].max()),

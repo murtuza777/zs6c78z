@@ -71,6 +71,28 @@ def test_revision_history_lists_pre_delivery_runs_with_availability():
     assert partial["n_points"] == 22  # D-2 run stops at 20:00 on delivery day
 
 
+def test_unchanged_since_detects_repeated_runs():
+    forecasts = f.runs(
+        f.windfor_run("2026-01-14T22:30", 800),
+        f.windfor_run("2026-01-15T02:30", 900),
+        f.windfor_run("2026-01-15T07:30", 900),
+        f.windfor_run("2026-01-15T09:30", 900),
+    )
+    ctx = decision_context(date(2026, 1, 15), time(9, 50))
+    since, repeated = reports.unchanged_since(forecasts, ts("2026-01-15T09:30"), ctx)
+    assert since == ts("2026-01-15T02:30")
+    assert repeated == 2
+
+
+def test_unchanged_since_is_the_run_itself_when_values_changed():
+    forecasts = f.runs(f.windfor_run("2026-01-15T07:30", 1), f.windfor_run("2026-01-15T09:30", 2))
+    ctx = decision_context(date(2026, 1, 15), time(9, 50))
+    assert reports.unchanged_since(forecasts, ts("2026-01-15T09:30"), ctx) == (
+        ts("2026-01-15T09:30"),
+        0,
+    )
+
+
 def test_horizon_view_never_uses_forecasts_newer_than_target_minus_h():
     hourly = hourly_actuals(f.actuals("2026-01-16T00:00", 48, 900))
     view = reports.horizon_view(january_runs(), hourly, date(2026, 1, 16), date(2026, 1, 16), 20)

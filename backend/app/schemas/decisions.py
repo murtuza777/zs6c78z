@@ -37,6 +37,10 @@ class ForecastSummary(BaseModel):
     min_time: datetime
     band_p10_energy_gwh: float | None
     band_p90_energy_gwh: float | None
+    unchanged_since: datetime = Field(
+        description="Earliest run whose delivery-day values the selected run repeats exactly"
+    )
+    repeated_runs: int = Field(description="Earlier consecutive runs with identical values")
 
 
 class TypicalError(BaseModel):

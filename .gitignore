@@ -27,3 +27,5 @@ Thumbs.db
 
 # Local tooling
 .claude/
+
+.env*.local

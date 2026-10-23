@@ -113,6 +113,8 @@ export const decision: DecisionResponse = {
     min_time: hour(0),
     band_p10_energy_gwh: 168,
     band_p90_energy_gwh: 252,
+    unchanged_since: '2026-01-14T18:30:00Z',
+    repeated_runs: 5,
   },
   typical_error: {
     mae_mw: 2051,

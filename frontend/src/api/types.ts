@@ -71,6 +71,8 @@ export interface ForecastSummary {
   min_time: Iso;
   band_p10_energy_gwh: number | null;
   band_p90_energy_gwh: number | null;
+  unchanged_since: Iso;
+  repeated_runs: number;
 }
 
 export interface TypicalError {
