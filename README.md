@@ -43,7 +43,7 @@ All figures are computed by the app and the notebook from the validated snapshot
 | Mean bias | **+1,730 MW**: the forecast was above actual output in **84%** of hours and on 28 of 31 days |
 | Energy | forecast exceeded actual by **1,287 GWh** over the month (15% of actual) |
 | P90 / max absolute error | 4,144 MW / 6,833 MW |
-| P10–P90 band | **76.7%** held-out coverage (nominal 80%) |
+| P10–P90 bands | hourly band: **76.7%** held-out coverage; daily energy range: **74%** of days (nominal 80% for both) |
 | Value of waiting | the D−1 22:30 run is about 9% more accurate than the 09:30 run, but it comes after the gate. Most of the error is bias, which waiting does not remove |
 | Stale feed | 26 Jan 18:30 → 27 Jan 09:30: five consecutive runs repeated identical values. The forecast used for **28 Jan** (the worst day, MAE 5.4 GW) was 15 h old at the gate. WindDesk flags this case |
 
@@ -53,7 +53,7 @@ All figures are computed by the app and the notebook from the validated snapshot
 
 | Screen | Purpose |
 |---|---|
-| **Day-Ahead Brief** (`/brief`) | Pick a decision date and a gate-closure scenario. It shows the forecast available at that cutoff (publish time, lead time), the delivery-day energy, peak and minimum, the typical historical error at that lead time, an empirical P10–P90 band, the forecast revision history, data-coverage pills and a stale-feed warning. **Reveal actuals** adds the hindsight view: actual line, day metrics, error columns. Hourly table with CSV export. |
+| **Day-Ahead Brief** (`/brief`) | Pick a decision date and a gate-closure scenario. A headline sentence states what the forecast available at that cutoff expected. Tiles show energy with a daily P10–P90 range, peak and minimum, and the **typical error known at the gate** (from January days already completed). The view also has an hourly P10–P90 band, the forecast revision history, coverage pills, and partial-day and stale-feed warnings. **Reveal actuals** adds the hindsight view: actual line, day metrics, error columns. Hourly table with CSV export (UK and UTC timestamps, same rows as the table). Every tile explains its metric. |
 | **Forecast Accuracy** (`/accuracy`) | January headline metrics; daily MAE/bias (click a bar to open that day's brief); error histogram; forecast-vs-actual scatter; error by hour of day and by lead time; comparison of all D−1 runs (available vs after gate); worst five days; band coverage check; data coverage. |
 | **Horizon Explorer** (`/horizon`) | Pick a date range and a minimum lead time H. Each target hour uses the latest forecast published at least H hours earlier. |
 | **Methodology** (`/methodology`) | Sources, time-zone handling, forecast selection, alignment, metric definitions, gate-closure sources and limitations, written for a trader. |
@@ -153,7 +153,10 @@ Every statistic uses **matched hours only**: a selected forecast and a complete 
 | Correlation | Pearson r; `null` when n < 3 or a series is constant |
 | Energy (MWh) | Σ hourly MW × 1 h over matched hours, so forecast and actual cover identical periods |
 | Coverage | matched / expected hours; missing forecasts and incomplete actuals are counted separately |
-| P10–P90 band | 10th/90th percentile of errors in the same 6 h lead-time bucket from **all other** delivery days (leave-one-day-out); shown only with ≥ 48 observations from ≥ 10 days. Held-out coverage is reported. It is an empirical interval, not a guarantee |
+| Typical error, known at gate | MAE/P90/bias at the same gate and lead-time buckets over delivery days that **ended before the decision day began**: what the desk could actually have known |
+| Hourly P10–P90 band | 10th/90th percentile of errors in the same 6 h lead-time bucket from **all other** delivery days (leave-one-day-out, pilot calibration, includes later days); shown only with ≥ 48 observations from ≥ 10 days |
+| Daily energy P10–P90 | 10th/90th percentile of **daily** energy errors on other fully forecast days (≥ 10). Hourly quantiles do not add up to a daily quantile, so they are not summed. Hidden for partially forecast days |
+| Band coverage | share of held-out hours (hourly band) or days (daily range) inside the band. Empirical intervals, not guarantees |
 
 ---
 
@@ -212,11 +215,30 @@ docker compose run --rm ingest
 
 The script fetches only what January decisions need: FUELHH settlement dates 2026-01-02 to
 2026-02-01, and WINDFOR runs published from 72 h before the first delivery period to the end of
-31 Jan. Missing fields, unparseable timestamps or empty results fail the run. Row-level problems
-(non-numeric values, duplicates, off-grid timestamps) are removed and counted. Gaps are recorded
-and never filled. Output: `data/snapshot/*.csv.gz` (reproducible gzip) and `manifest.json`
-(scope, sources, validation report, sha256 checksums). The app refuses to start on a checksum
-mismatch.
+31 Jan.
+
+* **Fails the run:** missing fields, unparseable timestamps or empty results.
+* **Removed and counted:** row-level problems (non-numeric values, duplicates, off-grid
+  timestamps).
+* **Recorded, never filled:** gaps.
+* **Incomplete results are refused:** missing actual half-hours, or delivery hours with no
+  forecast run, stop the run unless you pass `--allow-incomplete`. Accepted gaps are listed in
+  the manifest.
+* **Atomic publish:** the new snapshot is written to a staging directory and re-loaded with
+  checksum verification before it replaces the old one. A failed or interrupted run never
+  leaves a half-written snapshot.
+
+Output: `data/snapshot/*.csv.gz` (gzip with `mtime=0` and LF line endings, so the same data
+gives byte-identical files on Windows, macOS and Linux) and `manifest.json` (scope, sources,
+validation report, sha256 checksums). The app refuses to start on a checksum mismatch.
+Re-ingesting from the live API reproduced the committed snapshot `jan2026-113afcef1a` exactly,
+both on Windows and inside the Docker image.
+
+Re-run the analysis notebook:
+
+```bash
+uv run --project backend --group analysis jupyter execute --inplace analysis/forecast_error_analysis.ipynb
+```
 
 ---
 
@@ -230,7 +252,14 @@ cd backend && uv run pytest && uv run ruff check . && uv run ruff format --check
 cd frontend && npm test && npm run lint && npm run typecheck && npm run build
 ```
 
-* **Backend, 129 pytest tests.**
+End-to-end, against FastAPI serving the production build (uses the installed Google Chrome;
+needs `npm run build` and `uv sync` in `backend/` first):
+
+```bash
+cd frontend && npm run test:e2e
+```
+
+* **Backend, 150 pytest tests.**
   * Look-ahead guards: no selected forecast is published after the cutoff, checked for all 31
     January decisions across 36 gate times on the real snapshot.
   * Cutoff equality, exclusion of non-future targets, duplicate publications, per-hour fallback
@@ -240,12 +269,48 @@ cd frontend && npm test && npm run lint && npm run typecheck && npm run build
   * Metrics against hand-computed values, WAPE zero denominator, undefined correlation,
     empty input; leave-one-day-out isolation and band coverage.
   * Validation and snapshot checksums; Elexon client retry and timeout behaviour.
-  * API contracts, problem+json errors, ETag/304.
-* **Frontend, 23 Vitest + Testing Library tests.** Formatting (UK time across BST), URL-param
-  validation, CSV escaping and formula-injection guard, chart builders (actuals never drawn
-  before *Reveal*), and page behaviour with a mocked API.
-* **CI** (`.github/workflows/ci.yml`): backend lint + tests + lockfile/requirements sync;
-  frontend lint, format, tests and build; Docker build + smoke test.
+  * Ingestion safety: incomplete data refused, existing snapshot untouched on failure,
+    identical bytes for identical input on any platform.
+  * Known-at-gate error excludes later days; daily energy band (LODO, clipping, full-coverage
+    only); late-run availability.
+  * Bounded, single-flight caches (eight concurrent requests compute once).
+  * API contracts, problem+json errors (including generic 500s with a request ID), security
+    headers, ETag/304.
+* **Frontend, 38 Vitest + Testing Library tests.**
+  * Formatting (UK time across BST), URL-param validation.
+  * CSV contents match the API rows; escaping and formula-injection guard.
+  * Chart builders: actuals never drawn before *Reveal*; non-colour encodings.
+  * Debounced slider commit; findings wording for positive and negative bias; partial-day and
+    known-at-gate tiles; accessible metric hints.
+* **End-to-end, 15 Playwright tests** (desktop and mobile):
+  * Deep links, gate presets, date stepping, reveal by keyboard.
+  * Downloaded CSV contents, partial days, invalid params.
+  * API error plus retry, worst-day navigation and back, reload of deep links.
+  * Slider commit, 404, no horizontal overflow on phones.
+* **CI** (`.github/workflows/ci.yml`):
+  * Backend lint, tests and lockfile/requirements sync.
+  * Frontend lint, format, types, tests and build.
+  * Playwright end-to-end tests.
+  * Docker build plus a smoke test (including the CSP header).
+
+### Security and operations
+
+* **No secrets:** none are in the repository; local Vercel credentials (`.env*.local`,
+  `.vercel/`) are git-ignored and excluded from deploys.
+* **Error responses:** generic `problem+json` 500s that carry an `X-Request-ID`, never exception
+  text. Client-supplied request IDs are validated.
+* **Headers:** `nosniff`, `X-Frame-Options: DENY`, a referrer policy and a CSP, from both
+  FastAPI and `vercel.json`.
+* **CORS:** off by default (same-origin).
+* **Public API:** read-only and validated. Caches are bounded, so arbitrary gates or ranges
+  cannot exhaust memory.
+* **Docker image:** runs as a non-root user with a healthcheck. Static file serving is
+  traversal-safe.
+* **Dependency audits:**
+  * `pip-audit -r requirements.txt`: no known vulnerabilities.
+  * `npm audit --omit=dev`: 0 vulnerabilities.
+  * Remaining advisories are dev-only tooling (Vite 5's esbuild dev server, Vitest 2, Tailwind
+    3's selector parser) and need major upgrades.
 
 ---
 
@@ -267,18 +332,22 @@ cd frontend && npm test && npm run lint && npm run typecheck && npm run build
 │   │   └── data/                elexon_client.py, validation.py, snapshot.py
 │   ├── scripts/ingest.py        Reproducible ingestion -> validated snapshot
 │   ├── data/snapshot/           Committed January 2026 snapshot + manifest
-│   ├── tests/                   pytest suite (unit, API, real-snapshot guards)
+│   ├── tests/                   pytest: unit, API, ingestion safety, real-snapshot guards
 │   ├── pyproject.toml, uv.lock  Dependencies (uv), ruff, pytest config
 ├── frontend/
 │   ├── src/api/                 Typed client, TanStack Query hooks, response types
 │   ├── src/pages/               DayAheadBrief, ForecastAccuracy, HorizonExplorer, Methodology
 │   ├── src/components/charts/   ECharts wrapper, theme (validated palette), option builders
 │   ├── src/components/          layout, controls (gate/date pickers), ui primitives
-│   ├── src/lib/                 formatting (UK time), URL params, CSV, insights
-│   └── src/**/*.test.ts(x)      Vitest tests
+│   ├── src/lib/                 formatting (UK time), URL params, CSV + exports, insights
+│   ├── src/hooks/               URL state, debounced commit, document title
+│   ├── src/**/*.test.ts(x)      Vitest tests
+│   ├── e2e/                     Playwright end-to-end tests
+│   └── playwright.config.ts     Runs e2e against FastAPI serving the built app
 ├── analysis/forecast_error_analysis.ipynb   Executed analysis notebook (same domain code)
 ├── docs/architecture.md         Design, decisions, trade-offs
 ├── docs/VIDEO_SCRIPT.md         Script for the 10-minute demo video
+├── docs/AUDIT_REPORT.md         Engineering audit: issues found, fixes, verification
 ├── docs/screenshots/            README images
 ├── Dockerfile, docker-compose.yml, .dockerignore, .env.example
 ├── vercel.json, .vercelignore, requirements.txt (exported from uv.lock)
@@ -298,7 +367,10 @@ cd frontend && npm test && npm run lint && npm run typecheck && npm run build
   publication lag can be modelled with an earlier custom gate.
 * **WINDFOR value semantics** (hourly mean vs instantaneous) are not documented. The hourly-mean
   comparison is a stated assumption, and the sensitivity check shows it does not matter.
-* **Band:** one month of autocorrelated errors. Coverage is reported, not guaranteed.
+* **Bands and pilot calibration:** one month of errors that are autocorrelated within and
+  across days. Leave-one-day-out uses days after each decision (pilot calibration; labelled in
+  the UI), and coverage is reported, not guaranteed. A live deployment would use trailing
+  history only, which is what the *known at gate* error already does.
 * **Delivery-day definition:** UK settlement day 00:00–24:00. Exchange products may use other
   delivery periods (e.g. 23:00–23:00).
 

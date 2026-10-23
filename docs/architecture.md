@@ -59,7 +59,12 @@ synthetic frames (`tests/factories.py`).
 | Latest eligible run **per target hour** | Correct if a newer run omits some hours (falls back hour by hour) | Several publish times can feed one day; the UI shows this |
 | Hourly mean of two half-hours as the primary actual | Compares like with like at the forecast's resolution; partial hours are excluded, not estimated | WINDFOR semantics undocumented; the first-half-hour sensitivity check changes MAE by under 1% |
 | Gate presets as documented scenarios + custom | Exchange rules differ and change; sources are shown in the UI and API | None |
-| Leave-one-day-out empirical band by 6 h lead-time bucket, with a minimum sample | A day's own errors never shape its band; thin buckets show no band instead of a misleading one | One month and autocorrelated errors: coverage is reported (76.7% vs 80%) |
+| Leave-one-day-out empirical band by 6 h lead-time bucket, with a minimum sample | A day's own errors never shape its band; thin buckets show no band instead of a misleading one | One month and autocorrelated errors: coverage is reported (76.7% vs 80%); LODO uses later days, so it is labelled pilot calibration |
+| Separate *known at gate* error (completed days only) | Decision-time tiles must not use information from after the decision | Few days early in the month (none on 1 Jan); shown next to the pilot figure |
+| Daily energy range from daily error quantiles | Hourly quantiles do not add up to a daily quantile; summing them over-covered (87% of days) | Needs ≥ 10 fully forecast days; hidden for partial days |
+| Bounded, single-flight LRU memos | Keys come from user input (any gate or range); concurrent first requests must not stampede | Duplicate keys wait for the first computation |
+| Staged, verified, atomic snapshot publish + completeness gate | Failed or incomplete ingestion must never replace a good snapshot | `--allow-incomplete` needed to keep gaps deliberately |
+| LF line endings and `mtime=0` gzip | Same data gives byte-identical snapshots on every platform | — |
 | WAPE instead of MAPE | MAPE explodes at low wind | — |
 | Numeric x-axis with UK-local tick formatter | Ticks land on UK hours in any browser time zone (ECharts time axes use the browser's zone) | Band drawn as a custom polygon (line stacking needs a category or time axis) |
 | Single Vercel deployment (static + Python function) | One URL, CDN edge caching via `s-maxage`, no dyno sleep | Cold start of about 1 s; pandas fits the function size limit |
@@ -86,7 +91,10 @@ synthetic frames (`tests/factories.py`).
 
 First `/accuracy` call about 0.36 s (it aligns all 31 decisions, the vintage grid and the LODO
 coverage), about 0.12 s once memoised. `/decisions` takes about 35 ms when warm. Payloads are
-gzipped (`/accuracy` about 16 KB over the wire).
+gzipped (`/accuracy` about 16 KB over the wire). Memo keys are single-flight: the parallel e2e
+suite exposed a stampede where several workers recomputed the same gate at once and pushed
+`/meta` past 10 s; this is now fixed and covered by a concurrency test. The frontend bundle is
+about 300 KB gzipped (ECharts 6 is about 213 KB of that and is needed on three of four routes).
 
 ## 7. What changes for production
 

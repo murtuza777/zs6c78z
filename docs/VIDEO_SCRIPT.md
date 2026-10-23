@@ -14,12 +14,14 @@ from the live app or the notebook, so say only what is on screen.
 > when you had to decide, and how far can you trust it?"
 
 **0:35–1:50. The Day-Ahead Brief, decision-time view.**
-* Point to the context strip: decision 27 Jan, gate 09:50 → delivery 28 Jan; *forecast used:
-  published 09:30, 14.5–37.5 h ahead*.
+* Point to the headline card: decision 27 Jan at 09:50 → delivery 28 Jan; the 09:30 run was
+  the latest available; lead time 14.5–37.5 h.
 * Switch gate presets (09:20 EPEX → 07:30 run; 15:30 → 15:30 run). "Gates are scenarios with
   sources. You can model your own cutoff."
-* KPI row: 267 GWh forecast, P10–P90 178–280 GWh, peak 15.2 GW, typical error at this lead
-  time about 1.9 GW (from the other 30 days).
+* Headline: "At 09:50 the latest forecast, published 09:30, expected 267 GWh for 28 Jan."
+  Tiles: daily P10–P90 183–267 GWh, peak 15.2 GW, and the *typical error known at the
+  gate*: 1.9 GW from the 25 January days already completed. "No hindsight: only days
+  that had finished count." Hover an ⓘ to show the metric explanations.
 * Point to the **stale-feed warning**: values unchanged since 26 Jan 18:30, five repeated runs.
   "The feed had not updated for 15 hours. WindDesk flags it."
 
@@ -37,7 +39,8 @@ from the live app or the notebook, so say only what is on screen.
   scatter above the diagonal.
 * Vintage chart: "Waiting for the 22:30 run is about 9% better, but it comes after the gate.
   Correcting the bias is worth far more than waiting."
-* Band check: 76.7% held-out coverage against 80% nominal. "A range you can plan against."
+* Band check: hourly band 76.7% and daily range 74% held-out coverage against 80% nominal.
+  "Close to calibrated; we report it rather than assume it."
 
 **4:15–5:00. Limits and next steps.**
 > "This pilot uses national wind data only. It is decision support, not procurement error:
@@ -66,8 +69,9 @@ Show `backend/data/snapshot/manifest.json` (scope, validation report, sha256).
 cd backend && uv run pytest -q
 ```
 > "36 gate times by 31 decisions on the real data: nothing published after the cutoff is ever
-> selected. Also hand-computed metrics, DST, duplicates and gaps: 129 backend tests."
-Then `cd frontend && npm test`: 23 tests, including "actuals are never drawn before Reveal".
+> selected. Also hand-computed metrics, DST, duplicates, gaps, ingestion safety: 150 backend tests."
+Then `cd frontend && npm test` (38 tests, including "actuals are never drawn before Reveal")
+and `npm run test:e2e` (15 Playwright tests in real Chrome, desktop and mobile).
 
 **7:40–8:30. API and frontend structure.**
 * Open `/api/docs`: five endpoints, problem+json error on `/decisions/2026-02-01`, ETag/304.
