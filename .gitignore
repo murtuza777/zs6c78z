@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+coverage/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Env / editor / OS
+.env
+.vercel/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "snapshot_version": "jan2026-2a1d75fda6",
+  "created_at": "2026-10-23T16:17:18Z",
+  "scope": {
+    "decision_dates": [
+      "2026-01-01",
+      "2026-01-31"
+    ],
+    "delivery_dates": [
+      "2026-01-02",
+      "2026-02-01"
+    ],
+    "delivery_window_utc": [
+      "2026-01-02T00:00:00+00:00",
+      "2026-02-02T00:00:00+00:00"
+    ],
+    "forecast_publish_window_utc": [
+      "2025-12-30T00:00:00+00:00",
+      "2026-02-01T00:00:00+00:00"
+    ]
+  },
+  "sources": {
+    "actuals": {
+      "endpoint": "https://data.elexon.co.uk/bmrs/api/v1/datasets/FUELHH/stream",
+      "params": {
+        "settlementDateFrom": "2026-01-02",
+        "settlementDateTo": "2026-02-01",
+        "fuelType": "WIND"
+      },
+      "semantics": "Half-hourly average MW per settlement period (Elexon docs)."
+    },
+    "forecasts": {
+      "endpoint": "https://data.elexon.co.uk/bmrs/api/v1/datasets/WINDFOR/stream",
+      "params": {
+        "publishDateTimeFrom": "2025-12-30T00:00:00+00:00",
+        "publishDateTimeTo": "2026-02-01T00:00:00+00:00",
+        "chunking": "24 h publish-time windows"
+      },
+      "semantics": "Hourly MW forecast for metered wind visible to NESO."
+    }
+  },
+  "validation": {
+    "actuals": {
+      "dataset": "FUELHH",
+      "rows_received": 1488,
+      "non_wind_rows_dropped": 0,
+      "invalid_generation_rows_dropped": 0,
+      "negative_generation_rows": 0,
+      "off_grid_rows_dropped": 0,
+      "out_of_window_rows_dropped": 0,
+      "duplicate_rows_identical": 0,
+      "duplicate_rows_conflicting": 0,
+      "conflict_examples": [],
+      "settlement_period_mismatches": 0,
+      "settlement_date_mismatches": 0,
+      "expected_periods": 1488,
+      "missing_periods": [],
+      "rows_clean": 1488
+    },
+    "forecasts": {
+      "dataset": "WINDFOR",
+      "rows_received": 19272,
+      "invalid_generation_rows_dropped": 0,
+      "negative_generation_rows": 0,
+      "off_hour_target_rows_dropped": 0,
+      "out_of_window_rows_dropped": 1408,
+      "duplicate_rows_identical": 0,
+      "duplicate_rows_conflicting": 0,
+      "conflict_examples": [],
+      "rows_clean": 17864,
+      "runs": 256,
+      "first_publish_time": "2025-12-31T02:30:00Z",
+      "last_publish_time": "2026-01-31T22:30:00Z",
+      "publish_times_of_day_utc": {
+        "02:30": 32,
+        "04:30": 32,
+        "07:30": 32,
+        "09:30": 32,
+        "11:30": 31,
+        "12:25": 1,
+        "15:30": 32,
+        "18:30": 32,
+        "22:30": 32
+      },
+      "publish_times_of_day_uk": {
+        "02:30": 32,
+        "04:30": 32,
+        "07:30": 32,
+        "09:30": 32,
+        "11:30": 31,
+        "12:25": 1,
+        "15:30": 32,
+        "18:30": 32,
+        "22:30": 32
+      },
+      "runs_per_uk_day": {
+        "2025-12-31": 8,
+        "2026-01-01": 8,
+        "2026-01-02": 8,
+        "2026-01-03": 8,
+        "2026-01-04": 8,
+        "2026-01-05": 8,
+        "2026-01-06": 8,
+        "2026-01-07": 8,
+        "2026-01-08": 8,
+        "2026-01-09": 8,
+        "2026-01-10": 8,
+        "2026-01-11": 8,
+        "2026-01-12": 8,
+        "2026-01-13": 8,
+        "2026-01-14": 8,
+        "2026-01-15": 8,
+        "2026-01-16": 8,
+        "2026-01-17": 8,
+        "2026-01-18": 8,
+        "2026-01-19": 8,
+        "2026-01-20": 8,
+        "2026-01-21": 8,
+        "2026-01-22": 8,
+        "2026-01-23": 8,
+        "2026-01-24": 8,
+        "2026-01-25": 8,
+        "2026-01-26": 8,
+        "2026-01-27": 8,
+        "2026-01-28": 8,
+        "2026-01-29": 8,
+        "2026-01-30": 8,
+        "2026-01-31": 8
+      },
+      "target_resolution_minutes": [
+        60
+      ],
+      "non_future_rows": 3577,
+      "lead_time_h_range": [
+        -25.5,
+        66.5
+      ],
+      "target_hours_expected": 744,
+      "target_hours_without_any_run": [],
+      "min_runs_per_target_hour": 8
+    }
+  },
+  "files": {
+    "actuals_wind_halfhourly.csv.gz": {
+      "sha256": "9a59aee2734eb9a0d1ca5d36c2e5148916b791fe74e9f80be16c10b7863b6cd1",
+      "rows": 1488
+    },
+    "forecasts_wind.csv.gz": {
+      "sha256": "6f934165f5e086a532dc01baca7ed1c6dcb8dbb34c729b1da1ec4253e4c16229",
+      "rows": 17864
+    }
+  }
+}
