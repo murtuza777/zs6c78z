@@ -81,7 +81,9 @@ def write_snapshot(
         **manifest_fields,
         "files": files,
     }
-    (directory / MANIFEST_FILE).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (directory / MANIFEST_FILE).write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
     return manifest
 
 
