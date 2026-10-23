@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { useHorizon, useMeta } from '../api/hooks';
 import type { MetaResponse } from '../api/types';
@@ -6,6 +6,7 @@ import { EChart } from '../components/charts/EChart';
 import { buildHorizonOption } from '../components/charts/horizonChart';
 import { DateRangeFields } from '../components/controls/DateControls';
 import { Card, ErrorState, PageSkeleton, StatTile } from '../components/ui/primitives';
+import { useDebouncedCommit } from '../hooks/useDebouncedCommit';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useUrlPatch } from '../hooks/useUrlState';
 import { fmtMW, fmtNumber, fmtPct, fmtSignedMW } from '../lib/format';
@@ -32,13 +33,8 @@ function Explorer({ meta }: { meta: MetaResponse }) {
   const horizon = parseNumberParam(params.get('h'), 0, meta.horizon_h_max, 24);
   // Local slider state keeps dragging smooth; the URL (and query) follow after a short pause.
   // Debouncing works for mouse, touch, keyboard and assistive tech alike.
-  const [draft, setDraft] = useState(horizon);
-  useEffect(() => setDraft(horizon), [horizon]);
-  useEffect(() => {
-    if (draft === horizon) return;
-    const timer = setTimeout(() => patch({ h: String(draft) }), COMMIT_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [draft, horizon, patch]);
+  const commitHorizon = useCallback((h: number) => patch({ h: String(h) }), [patch]);
+  const [draft, setDraft] = useDebouncedCommit(horizon, commitHorizon, COMMIT_DELAY_MS);
   const query = useHorizon(from, to, horizon);
   const option = useMemo(() => (query.data ? buildHorizonOption(query.data) : null), [query.data]);
   const m = query.data?.metrics;
