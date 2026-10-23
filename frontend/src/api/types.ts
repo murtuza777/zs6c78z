@@ -64,6 +64,7 @@ export interface ForecastSummary {
   horizon_min_h: number;
   horizon_max_h: number;
   hours_with_forecast: number;
+  hours_expected: number;
   energy_gwh: number;
   peak_mw: number;
   peak_time: Iso;
@@ -71,6 +72,8 @@ export interface ForecastSummary {
   min_time: Iso;
   band_p10_energy_gwh: number | null;
   band_p90_energy_gwh: number | null;
+  energy_band_n_days: number;
+  energy_band_method: string;
   unchanged_since: Iso;
   repeated_runs: number;
 }
@@ -120,6 +123,7 @@ export interface DecisionResponse {
   delivery_end_utc: Iso;
   forecast: ForecastSummary | null;
   typical_error: TypicalError;
+  typical_error_known_at_gate: TypicalError;
   band: BandInfo;
   hindsight_metrics: Metrics;
   rows: DecisionRow[];
@@ -144,6 +148,7 @@ export interface GroupAccuracy {
 export interface VintageAccuracy {
   slot: string;
   publish_day: string;
+  latest_publish_uk: string;
   available_at_gate: boolean;
   n_days: number;
   n_runs_off_schedule: number;
@@ -169,6 +174,7 @@ export interface BandCoverage {
   nominal_pct: number;
   method: string;
   by_bucket: { bucket_h: number; label: string; n_evaluated: number; coverage_pct: number }[];
+  daily_energy: { n_days: number; coverage_pct: number | null };
 }
 
 export interface AccuracyResponse {
@@ -229,6 +235,16 @@ export interface MetaResponse {
   publish_slots_uk: string[];
   horizon_h_max: number;
   horizon_bucket_h: number;
+  band: {
+    lower_quantile: number;
+    upper_quantile: number;
+    bucket_h: number;
+    min_obs: number;
+    min_days: number;
+    min_energy_days: number;
+    method: string;
+    energy_method: string;
+  };
   timezone: string;
   units: Record<string, string>;
   error_convention: string;

@@ -12,8 +12,11 @@ export function toCsv(headers: string[], rows: CsvValue[][]): string {
   return [headers, ...rows].map((row) => row.map(escapeCell).join(',')).join('\r\n') + '\r\n';
 }
 
+/** UTF-8 byte-order mark so spreadsheet apps detect the encoding correctly. */
+export const CSV_BOM = '﻿';
+
 export function downloadCsv(filename: string, csv: string): void {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob([CSV_BOM + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -21,5 +24,6 @@ export function downloadCsv(filename: string, csv: string): void {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Revoking synchronously can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

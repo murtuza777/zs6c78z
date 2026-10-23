@@ -3,9 +3,17 @@
 import type { AccuracyResponse, DecisionResponse, VintageAccuracy } from '../api/types';
 
 export function overForecastShare(scatter: AccuracyResponse['scatter']): number | null {
+  return errorDirection(scatter)?.overPct ?? null;
+}
+
+/** Share of matched hours that were over- vs under-forecast (exact hits count in neither). */
+export function errorDirection(
+  scatter: AccuracyResponse['scatter'],
+): { overPct: number; underPct: number } | null {
   if (!scatter.length) return null;
   const over = scatter.filter((p) => p.forecast_mw > p.actual_mw).length;
-  return (100 * over) / scatter.length;
+  const under = scatter.filter((p) => p.forecast_mw < p.actual_mw).length;
+  return { overPct: (100 * over) / scatter.length, underPct: (100 * under) / scatter.length };
 }
 
 /** Best run usable at the gate vs. the best run overall on D-1 (the value of waiting). */
