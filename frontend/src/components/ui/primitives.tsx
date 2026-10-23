@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ButtonHTMLAttributes, type ReactNode, useId } from 'react';
 
 import { cx } from '../../lib/cx';
 
@@ -20,7 +20,9 @@ export function Card({
   return (
     <section
       className={cx(
-        'rounded-xl border border-line bg-surface p-4 sm:p-5',
+        // min-w-0 lets cards shrink inside grid/flex parents so wide tables scroll internally
+        // instead of stretching the page on narrow screens.
+        'min-w-0 rounded-xl border border-line bg-surface p-4 sm:p-5',
         tone === 'decision' && 'border-l-2 border-l-forecast',
         tone === 'hindsight' && 'border-l-2 border-l-actual',
         className,
@@ -40,20 +42,52 @@ export function Card({
   );
 }
 
+/**
+ * Accessible explanation for a metric. The tooltip is positioned against the nearest
+ * `relative` ancestor (the tile), so it can never overflow the viewport on small screens.
+ */
+export function InfoHint({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`What is ${label}?`}
+        aria-describedby={id}
+        className="peer ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none text-ink-muted ring-1 ring-inset ring-edge hover:text-ink focus-visible:text-ink"
+      >
+        i
+      </button>
+      <span
+        role="tooltip"
+        id={id}
+        className="pointer-events-none invisible absolute inset-x-2 top-full z-30 mt-1 rounded-md bg-[#1b2b47] px-2.5 py-2 text-xs font-normal leading-snug text-ink-secondary opacity-0 shadow-xl ring-1 ring-edge transition-opacity peer-hover:visible peer-hover:opacity-100 peer-focus-visible:visible peer-focus-visible:opacity-100"
+      >
+        {children}
+      </span>
+    </>
+  );
+}
+
 export function StatTile({
   label,
   value,
   detail,
   emphasis,
+  hint,
 }: {
   label: string;
   value: ReactNode;
   detail?: ReactNode;
   emphasis?: boolean;
+  hint?: ReactNode;
 }) {
   return (
-    <div className="min-w-0 rounded-lg bg-raised/60 px-3 py-2.5">
-      <div className="truncate text-xs text-ink-muted">{label}</div>
+    <div className="relative min-w-0 rounded-lg bg-raised/60 px-3 py-2.5">
+      <div className="flex items-center text-xs text-ink-muted">
+        <span className="truncate">{label}</span>
+        {hint && <InfoHint label={label}>{hint}</InfoHint>}
+      </div>
       <div
         className={cx(
           'mt-1 font-semibold text-ink',
@@ -166,6 +200,51 @@ export function Toggle({
   );
 }
 
+export function Button({
+  variant = 'secondary',
+  className,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'secondary' | 'ghost' }) {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={cx(
+        'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        variant === 'secondary' && 'bg-raised text-ink ring-1 ring-inset ring-edge hover:bg-edge',
+        variant === 'ghost' && 'text-ink-secondary hover:bg-raised hover:text-ink',
+        className,
+      )}
+    />
+  );
+}
+
+/** Placeholder blocks shaped like the page, so loading never shifts the layout. */
+export function PageSkeleton({ label }: { label: string }) {
+  const block = 'animate-pulse rounded-lg bg-raised/70';
+  return (
+    <div role="status" aria-live="polite" className="space-y-4">
+      <span className="sr-only">{label}</span>
+      <div className={cx(block, 'h-16')} />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className={cx(block, 'h-20')} />
+        ))}
+      </div>
+      <div className={cx(block, 'h-80')} />
+    </div>
+  );
+}
+
+export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-dashed border-edge px-4 py-6 text-center text-sm text-ink-muted">
+      <p className="font-medium text-ink-secondary">{title}</p>
+      {children && <div className="mt-1">{children}</div>}
+    </div>
+  );
+}
+
 export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   return (
     <div
@@ -188,13 +267,9 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
       <p className="font-semibold text-ink">Could not load this view</p>
       <p className="mt-1">{message}</p>
       {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-3 rounded-md bg-raised px-3 py-1.5 text-ink ring-1 ring-edge hover:bg-edge"
-        >
+        <Button className="mt-3" onClick={onRetry}>
           Try again
-        </button>
+        </Button>
       )}
     </div>
   );

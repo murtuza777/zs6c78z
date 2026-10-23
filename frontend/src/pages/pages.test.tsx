@@ -64,7 +64,9 @@ describe('Day-Ahead Brief', () => {
     expect(await screen.findByText('What actually happened')).toBeInTheDocument();
     const table = screen.getAllByRole('table').at(-1)!;
     expect(within(table).getAllByText('Actual').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /export hourly observations as csv/i }),
+    ).toBeInTheDocument();
   });
 
   it('labels runs published after the gate only in hindsight mode', async () => {
@@ -82,5 +84,57 @@ describe('Forecast Accuracy', () => {
     const link = screen.getByRole('link', { name: /Open brief/ });
     expect(link).toHaveAttribute('href', '/brief?date=2026-01-27&gate=09:50&reveal=1');
     expect(api.accuracy).toHaveBeenCalledWith('2026-01-01', '2026-01-31', '09:50');
+  });
+});
+
+describe('decision-time integrity', () => {
+  it('leads with error known at the gate and labels the pilot figure separately', async () => {
+    renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
+    expect(await screen.findByText('Typical error, known at gate')).toBeInTheDocument();
+    expect(screen.getByText(/MAE over 13 completed days/)).toBeInTheDocument();
+    expect(screen.getByText(/all other days 2,051 MW/)).toBeInTheDocument();
+  });
+
+  it('flags partially forecast delivery days instead of implying a full day', async () => {
+    vi.mocked(api.decision).mockResolvedValue({
+      ...decision,
+      forecast: { ...decision.forecast!, hours_with_forecast: 22, band_p10_energy_gwh: null },
+    });
+    renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
+    expect(await screen.findByText('Partial: 22 of 24 h forecast')).toBeInTheDocument();
+  });
+
+  it('exposes metric explanations to assistive technology', async () => {
+    renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
+    const hint = await screen.findByRole('button', { name: 'What is Forecast wind energy?' });
+    expect(hint).toHaveAccessibleDescription(/daily energy errors/);
+  });
+
+  it('marks the active gate preset with aria-pressed', async () => {
+    renderAt('/brief?date=2026-01-15&gate=09:20', <DayAheadBrief />, '/brief');
+    await screen.findByText('Fri 16 Jan 2026');
+    const pressed = screen
+      .getAllByRole('button', { pressed: true })
+      .map((b) => b.textContent ?? '');
+    expect(pressed.some((t) => t.includes('09:20'))).toBe(true);
+  });
+});
+
+describe('accuracy findings wording', () => {
+  it('states both error directions and the balance of bias', async () => {
+    renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
+    const findings = await screen.findByText(/above actual output in/);
+    expect(findings).toHaveTextContent('above actual output in 75% of hours and below it in 25%');
+    expect(findings).toHaveTextContent('overstated wind supply');
+  });
+
+  it('says understated when the bias is negative', async () => {
+    vi.mocked(api.accuracy).mockResolvedValue({
+      ...accuracy,
+      summary: { ...accuracy.summary, bias_mw: -300, energy_error_mwh: -1000 },
+    });
+    renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
+    const findings = await screen.findByText(/above actual output in/);
+    expect(findings).toHaveTextContent('understated wind supply');
   });
 });

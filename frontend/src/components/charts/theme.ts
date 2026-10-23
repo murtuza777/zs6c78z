@@ -59,7 +59,7 @@ export const baseTooltip = {
 export const axisCommon = {
   axisLine: { lineStyle: { color: C.axis } },
   axisTick: { show: false },
-  axisLabel: { color: C.muted, fontFamily: FONT, fontSize: 11 },
+  axisLabel: { color: C.muted, fontFamily: FONT, fontSize: 11, hideOverlap: true },
   splitLine: { lineStyle: { color: C.grid, width: 1 } },
   nameTextStyle: { color: C.muted, fontFamily: FONT, fontSize: 11 },
 };
@@ -82,6 +82,20 @@ export const legendCommon = {
   textStyle: { color: C.inkSecondary, fontFamily: FONT, fontSize: 12 },
   inactiveColor: C.axis,
 };
+
+/** Width (px) below which charts switch to their narrow layout. */
+export const NARROW_MAX_WIDTH = 600;
+
+/**
+ * Wrap an option with an ECharts media query so phones get more room for a wrapped legend and
+ * sparser axis ticks. Option builders stay pure; the chart applies the rule by container width.
+ */
+export function responsive<T extends Record<string, unknown>>(
+  option: T,
+  narrow: Record<string, unknown>,
+): { baseOption: T; media: { query: { maxWidth: number }; option: Record<string, unknown> }[] } {
+  return { baseOption: option, media: [{ query: { maxWidth: NARROW_MAX_WIDTH }, option: narrow }] };
+}
 
 export const baseOption = {
   backgroundColor: 'transparent',

@@ -7,16 +7,20 @@ import { EChart } from '../components/charts/EChart';
 import { DecisionDatePicker } from '../components/controls/DateControls';
 import { GateSelector } from '../components/controls/GateSelector';
 import {
+  Button,
   Card,
+  EmptyState,
   ErrorState,
-  LoadingState,
+  PageSkeleton,
   StatTile,
   StatusPill,
   Tag,
   Toggle,
 } from '../components/ui/primitives';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useUrlPatch } from '../hooks/useUrlState';
-import { downloadCsv, toCsv } from '../lib/csv';
+import { downloadCsv } from '../lib/csv';
+import { decisionCsv } from '../lib/exports';
 import {
   fmtDay,
   fmtGWh,
@@ -37,8 +41,9 @@ import { cx } from '../lib/cx';
 const STALE_RUNS = 2;
 
 export function DayAheadBrief() {
+  useDocumentTitle('Day-Ahead Brief');
   const meta = useMeta();
-  if (meta.isPending) return <LoadingState label="Loading scope…" />;
+  if (meta.isPending) return <PageSkeleton label="Loading scope…" />;
   if (meta.isError) return <ErrorState error={meta.error} onRetry={() => meta.refetch()} />;
   return <Brief meta={meta.data} />;
 }
@@ -94,7 +99,7 @@ function Brief({ meta }: { meta: MetaResponse }) {
         </div>
       </div>
 
-      {query.isPending && <LoadingState label="Selecting the forecast available at the gate…" />}
+      {query.isPending && <PageSkeleton label="Selecting the forecast available at the gate…" />}
       {query.isError && <ErrorState error={query.error} onRetry={() => query.refetch()} />}
       {query.data && (
         <div
@@ -120,71 +125,21 @@ function BriefBody({
     () => buildDecisionOption(data, { reveal, showRevisions }),
     [data, reveal, showRevisions],
   );
-  const { forecast, typical_error: typical, data_quality: dq, hindsight_metrics: hm } = data;
+  const {
+    forecast,
+    typical_error: pilot,
+    typical_error_known_at_gate: known,
+    hindsight_metrics: hm,
+  } = data;
   const reading = readDay(data);
+  const partial = forecast != null && forecast.hours_with_forecast < forecast.hours_expected;
 
   return (
     <>
-      <Card tone="decision">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-          <div>
-            <span className="text-ink-muted">Decision</span>{' '}
-            <span className="font-medium text-ink">{fmtDay(data.decision_date)}</span>
-            <span className="text-ink-muted">, gate {data.gate.gate} UK</span>
-            {data.gate.preset_label && (
-              <span className="text-ink-muted"> ({data.gate.preset_label})</span>
-            )}
-          </div>
-          <div aria-hidden className="text-ink-muted">
-            →
-          </div>
-          <div>
-            <span className="text-ink-muted">Delivery</span>{' '}
-            <span className="font-medium text-ink">{fmtDay(data.delivery_date)}</span>
-            <span className="text-ink-muted">, 00:00–24:00 UK</span>
-          </div>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          {forecast ? (
-            <span className="text-ink-secondary">
-              Forecast used: published{' '}
-              <span className="text-ink">{fmtUkDateTime(forecast.primary_publish_time)} UK</span>
-              {forecast.publish_times.length > 1 &&
-                ` (+${forecast.publish_times.length - 1} earlier runs for some hours)`}{' '}
-              · lead time {fmtHours(forecast.horizon_min_h)}–{fmtHours(forecast.horizon_max_h)}
-            </span>
-          ) : (
-            <span className="text-warning">No forecast had been published before this gate.</span>
-          )}
-          <span className="ml-auto flex flex-wrap gap-2">
-            {forecast && forecast.repeated_runs >= STALE_RUNS && (
-              <StatusPill
-                status="warning"
-                title="Consecutive WINDFOR runs published identical values for this delivery day, so the forecast had not been refreshed. A live version would alert the desk."
-              >
-                Stale feed: values unchanged since {fmtUkDateTime(forecast.unchanged_since)} UK (
-                {forecast.repeated_runs} repeated runs)
-              </StatusPill>
-            )}
-            <StatusPill status={dq.hours_with_forecast === dq.expected_hours ? 'good' : 'warning'}>
-              Forecast {dq.hours_with_forecast}/{dq.expected_hours} h
-            </StatusPill>
-            <StatusPill
-              status={dq.hours_with_complete_actual === dq.expected_hours ? 'good' : 'warning'}
-              title={
-                dq.incomplete_actual_hours.length
-                  ? `Incomplete: ${dq.incomplete_actual_hours.map((t) => fmtUkTime(t)).join(', ')}`
-                  : undefined
-              }
-            >
-              Actuals {dq.hours_with_complete_actual}/{dq.expected_hours} h complete
-            </StatusPill>
-          </span>
-        </div>
-      </Card>
+      <Headline data={data} />
 
       <section aria-labelledby="known-heading">
-        <div className="mb-2 flex items-center gap-2">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <h2 id="known-heading" className="text-sm font-semibold text-ink">
             Known at gate closure
           </h2>
@@ -193,28 +148,55 @@ function BriefBody({
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile
             emphasis
-            label="Forecast wind energy, delivery day"
+            label="Forecast wind energy"
             value={fmtGWh(forecast?.energy_gwh)}
+            hint={
+              <>
+                Sum of the hourly forecast (MW × 1 h) for the delivery day. The P10–P90 range is the
+                10th–90th percentile of <em>daily</em> energy errors on other fully forecast January
+                days at this gate. It is a pilot calibration that includes days after this decision,
+                not a guarantee.
+              </>
+            }
             detail={
-              forecast?.band_p10_energy_gwh != null
-                ? `P10–P90: ${fmtNumber(forecast.band_p10_energy_gwh, 0)}–${fmtGWh(forecast.band_p90_energy_gwh, 0)}`
-                : 'Uncertainty band unavailable'
+              partial ? (
+                <span className="text-warning">
+                  Partial: {forecast.hours_with_forecast} of {forecast.hours_expected} h forecast
+                </span>
+              ) : forecast?.band_p10_energy_gwh != null ? (
+                `P10–P90 ${fmtNumber(forecast.band_p10_energy_gwh, 0)}–${fmtGWh(forecast.band_p90_energy_gwh, 0)} (${forecast.energy_band_n_days} other days)`
+              ) : (
+                'Daily range unavailable (too few complete days)'
+              )
             }
           />
           <StatTile
             label="Peak forecast"
             value={fmtMW(forecast?.peak_mw)}
             detail={forecast ? `at ${fmtUkTime(forecast.peak_time)} UK` : undefined}
+            hint="Highest hourly forecast value for the delivery day."
           />
           <StatTile
             label="Minimum forecast"
             value={fmtMW(forecast?.min_mw)}
             detail={forecast ? `at ${fmtUkTime(forecast.min_time)} UK` : undefined}
+            hint="Lowest hourly forecast value for the delivery day."
           />
           <StatTile
-            label="Typical error at this lead time"
-            value={fmtMW(typical.mae_mw)}
-            detail={`MAE · P90 ${fmtMW(typical.p90_abs_error_mw)} · bias ${fmtSignedMW(typical.bias_mw)} (${typical.n_days} other days)`}
+            label="Typical error, known at gate"
+            value={fmtMW(known.mae_mw)}
+            hint={
+              <>
+                Mean absolute hourly error at the same gate and lead times, using only January
+                delivery days that had ended before this decision. The second figure uses every
+                other January day, including later ones. It is shown for pilot calibration only.
+              </>
+            }
+            detail={
+              known.n_days > 0
+                ? `MAE over ${known.n_days} completed day${known.n_days === 1 ? '' : 's'}, bias ${fmtSignedMW(known.bias_mw)} · all other days ${fmtMW(pilot.mae_mw)}`
+                : `No completed January days yet · all other days ${fmtMW(pilot.mae_mw)}`
+            }
           />
         </div>
       </section>
@@ -233,55 +215,141 @@ function BriefBody({
               label="Actual wind energy"
               value={fmtGWh(hm.actual_energy_mwh != null ? hm.actual_energy_mwh / 1000 : null)}
               detail={`over ${hm.n_matched} matched hours`}
+              hint="Sum of hourly mean outturn (FUELHH WIND) over hours that have both a forecast and a complete actual."
             />
             <StatTile
-              label="Energy error (forecast − actual)"
+              label="Energy error"
               value={fmtSignedGWh(hm.energy_error_mwh != null ? hm.energy_error_mwh / 1000 : null)}
               detail={
                 hm.actual_energy_mwh
-                  ? `${fmtPct((100 * (hm.energy_error_mwh ?? 0)) / hm.actual_energy_mwh)} of actual`
-                  : undefined
+                  ? `forecast − actual · ${fmtPct((100 * (hm.energy_error_mwh ?? 0)) / hm.actual_energy_mwh)} of actual`
+                  : 'forecast − actual'
               }
+              hint="Forecast energy minus actual energy over matched hours. Positive means more wind was forecast than arrived."
             />
             <StatTile
               label="MAE, this day"
               value={fmtMW(hm.mae_mw)}
               detail={`RMSE ${fmtMW(hm.rmse_mw)}`}
+              hint="Mean absolute error: the average size of the hourly miss, ignoring direction. RMSE weights large misses more."
             />
             <StatTile
               label="Bias, this day"
               value={fmtSignedMW(hm.bias_mw)}
               detail={`max miss ${fmtMW(hm.max_abs_error_mw)}`}
+              hint="Mean signed error (forecast − actual). Positive = over-forecast on average."
             />
           </div>
         </section>
       ) : (
-        <div className="rounded-xl border border-dashed border-edge px-4 py-3 text-sm text-ink-muted">
-          Actuals are hidden. This view shows only what was known at {data.gate.gate} UK on{' '}
-          {fmtDay(data.decision_date)}. Turn on{' '}
-          <span className="text-ink-secondary">Reveal actuals</span> to see how the forecast
-          performed.
-        </div>
+        <EmptyState title="Actuals are hidden">
+          This view shows only what was known at {data.gate.gate} UK on {fmtDay(data.decision_date)}
+          . Turn on <span className="text-ink-secondary">Reveal actuals</span> to see how the
+          forecast performed.
+        </EmptyState>
       )}
 
       <Card
         title="Delivery-day wind generation (UK time)"
         subtitle={
           data.band.available
-            ? 'Shaded: P10–P90 range from other January days’ errors at the same lead time. It is an empirical range, not a guarantee.'
+            ? 'Shaded: hourly P10–P90 from other January days’ errors at the same lead time (pilot calibration; includes later days). An empirical range, not a guarantee.'
             : (data.band.reason ?? undefined)
         }
       >
-        <EChart
-          option={option}
-          height={340}
-          ariaLabel={`Forecast${reveal ? ' and actual' : ''} wind generation for ${data.delivery_date}`}
-        />
+        {forecast || reveal ? (
+          <EChart
+            option={option}
+            height={340}
+            ariaLabel={`Forecast${reveal ? ' and actual' : ''} wind generation for ${data.delivery_date}`}
+          />
+        ) : (
+          <EmptyState title="Nothing to plot">
+            No forecast run published before {data.gate.gate} UK covers this delivery day. Try a
+            later gate.
+          </EmptyState>
+        )}
       </Card>
 
       {showRevisions && <RevisionTable revisions={data.revisions} reveal={reveal} />}
       <ObservationTable data={data} reveal={reveal} />
     </>
+  );
+}
+
+function Headline({ data }: { data: DecisionResponse }) {
+  const { forecast, typical_error_known_at_gate: known, data_quality: dq } = data;
+  const partial = forecast != null && forecast.hours_with_forecast < forecast.hours_expected;
+  return (
+    <Card tone="decision">
+      <p className="text-base leading-relaxed text-ink-secondary">
+        At{' '}
+        <strong className="text-ink">
+          {data.gate.gate} UK on {fmtDay(data.decision_date)}
+        </strong>
+        {data.gate.preset_label && (
+          <span className="text-ink-muted"> ({data.gate.preset_label})</span>
+        )}
+        {forecast ? (
+          <>
+            , the latest forecast (published{' '}
+            <strong className="text-ink">{fmtUkDateTime(forecast.primary_publish_time)} UK</strong>)
+            expected <strong className="text-ink">{fmtGWh(forecast.energy_gwh)}</strong> of wind
+            {partial &&
+              ` over ${forecast.hours_with_forecast} of ${forecast.hours_expected} hours`}{' '}
+            for <strong className="text-ink">{fmtDay(data.delivery_date)}</strong> (00:00–24:00 UK).
+          </>
+        ) : (
+          <>
+            , no forecast run covered{' '}
+            <strong className="text-ink">{fmtDay(data.delivery_date)}</strong>.
+          </>
+        )}
+      </p>
+      <p className="mt-1 text-sm text-ink-muted">
+        {known.n_days > 0
+          ? `On the ${known.n_days} January delivery day${known.n_days === 1 ? '' : 's'} completed before this decision, forecasts at the same lead time missed by ${fmtMW(known.mae_mw)} an hour on average (bias ${fmtSignedMW(known.bias_mw)}).`
+          : 'No January delivery day had finished before this decision, so there is no error history from the pilot yet.'}
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        {forecast && (
+          <Tag tone="neutral">
+            lead time {fmtHours(forecast.horizon_min_h)}–{fmtHours(forecast.horizon_max_h)}
+            {forecast.publish_times.length > 1 &&
+              ` · ${forecast.publish_times.length} runs (fallback for some hours)`}
+          </Tag>
+        )}
+        {forecast && forecast.repeated_runs >= STALE_RUNS && (
+          <StatusPill
+            status="warning"
+            title="Consecutive WINDFOR runs published identical values for this delivery day, so the forecast had not been refreshed. A live version would alert the desk."
+          >
+            Stale feed: values unchanged since {fmtUkDateTime(forecast.unchanged_since)} UK (
+            {forecast.repeated_runs} repeated runs)
+          </StatusPill>
+        )}
+        <StatusPill
+          status={dq.hours_with_forecast === dq.expected_hours ? 'good' : 'warning'}
+          title={
+            dq.missing_forecast_hours.length
+              ? `No forecast for: ${dq.missing_forecast_hours.map((t) => fmtUkTime(t)).join(', ')} UK`
+              : undefined
+          }
+        >
+          Forecast {dq.hours_with_forecast}/{dq.expected_hours} h
+        </StatusPill>
+        <StatusPill
+          status={dq.hours_with_complete_actual === dq.expected_hours ? 'good' : 'warning'}
+          title={
+            dq.incomplete_actual_hours.length
+              ? `Incomplete: ${dq.incomplete_actual_hours.map((t) => fmtUkTime(t)).join(', ')} UK`
+              : undefined
+          }
+        >
+          Actuals {dq.hours_with_complete_actual}/{dq.expected_hours} h complete
+        </StatusPill>
+      </div>
+    </Card>
   );
 }
 
@@ -353,32 +421,8 @@ function diffEnergy(run: Revision, reference: Revision): number | null {
 
 function ObservationTable({ data, reveal }: { data: DecisionResponse; reveal: boolean }) {
   const exportCsv = () => {
-    const headers = [
-      'start_time_utc',
-      'start_time_uk',
-      'forecast_mw',
-      'forecast_publish_time_utc',
-      'lead_time_h',
-      'band_p10_mw',
-      'band_p90_mw',
-      ...(reveal
-        ? ['actual_hourly_mean_mw', 'actual_first_half_hour_mw', 'actual_status', 'error_mw']
-        : []),
-    ];
-    const rows = data.rows.map((r) => [
-      r.start_time,
-      fmtUkDateTime(r.start_time),
-      r.forecast_mw,
-      r.publish_time,
-      r.horizon_h,
-      r.band_p10_mw?.toFixed(1),
-      r.band_p90_mw?.toFixed(1),
-      ...(reveal ? [r.actual_mw, r.actual_first_half_mw, r.actual_status, r.error_mw] : []),
-    ]);
-    downloadCsv(
-      `winddesk_decision_${data.decision_date}_gate-${data.gate.gate.replace(':', '')}${reveal ? '_with-actuals' : ''}.csv`,
-      toCsv(headers, rows),
-    );
+    const { filename, csv } = decisionCsv(data, reveal);
+    downloadCsv(filename, csv);
   };
 
   return (
@@ -386,13 +430,9 @@ function ObservationTable({ data, reveal }: { data: DecisionResponse; reveal: bo
       title="Hourly observations"
       subtitle="Actual = mean of the two half-hourly outturns in each hour. Error = forecast − actual (positive = over-forecast)."
       actions={
-        <button
-          type="button"
-          onClick={exportCsv}
-          className="rounded-md bg-raised px-3 py-1.5 text-xs text-ink ring-1 ring-edge hover:bg-edge"
-        >
+        <Button onClick={exportCsv} aria-label="Export hourly observations as CSV">
           Export CSV
-        </button>
+        </Button>
       }
     >
       <div className="max-h-[420px] overflow-auto">
@@ -448,7 +488,8 @@ function ObservationTable({ data, reveal }: { data: DecisionResponse; reveal: bo
         </table>
       </div>
       <p className="mt-2 text-xs text-ink-muted">
-        All values in MW. Timestamps in UK local time; the API and CSV also give UTC.
+        All values in MW. Times in UK local time; the CSV has UK and UTC timestamps and matches this
+        table row for row.
       </p>
     </Card>
   );

@@ -194,6 +194,7 @@ export function scatterOption(points: ScatterPoint[]): ChartOption {
 }
 
 export function vintageOption(vintages: VintageAccuracy[]): ChartOption {
+  const afterGate = vintages.filter((v) => !v.available_at_gate).map((v) => v.slot);
   return {
     ...baseOption,
     grid: { ...grid, top: 32 },
@@ -203,7 +204,9 @@ export function vintageOption(vintages: VintageAccuracy[]): ChartOption {
       formatter: (p: { dataIndex: number }) => {
         const v = vintages[p.dataIndex];
         if (!v) return '';
-        const late = v.n_runs_off_schedule ? ` · ${v.n_runs_off_schedule} late run(s)` : '';
+        const late = v.n_runs_off_schedule
+          ? ` · ${v.n_runs_off_schedule} late run(s), latest ${v.latest_publish_uk}`
+          : '';
         return [
           tooltipTitle(
             `${v.slot} UK on D−1 · ${v.available_at_gate ? 'available at gate' : 'after gate'}${late}`,
@@ -239,6 +242,15 @@ export function vintageOption(vintages: VintageAccuracy[]): ChartOption {
           fontSize: 11,
           formatter: (p: { value: number }) => fmtCompact(Math.round(p.value / 10) * 10),
         },
+        // Shaded, labelled region: availability is readable without relying on bar colour.
+        markArea: afterGate.length
+          ? {
+              silent: true,
+              itemStyle: { color: 'rgba(144, 133, 233, 0.07)' },
+              label: { show: true, color: C.muted, fontSize: 11, position: 'insideTop' },
+              data: [[{ xAxis: afterGate[0], name: 'After gate' }, { xAxis: afterGate.at(-1) }]],
+            }
+          : undefined,
       },
     ],
   };

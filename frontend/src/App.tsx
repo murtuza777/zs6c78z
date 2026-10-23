@@ -1,12 +1,14 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { AppShell } from './components/layout/AppShell';
+import { useDocumentTitle } from './hooks/useDocumentTitle';
 import { DayAheadBrief } from './pages/DayAheadBrief';
 import { ForecastAccuracy } from './pages/ForecastAccuracy';
 import { HorizonExplorer } from './pages/HorizonExplorer';
 import { Methodology } from './pages/Methodology';
 
 function NotFound() {
+  useDocumentTitle('Page not found');
   const location = useLocation();
   return (
     <div className="rounded-xl border border-line bg-surface p-6 text-sm text-ink-secondary">

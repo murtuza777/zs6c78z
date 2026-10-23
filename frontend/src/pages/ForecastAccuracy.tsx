@@ -17,22 +17,25 @@ import { DateRangeFields } from '../components/controls/DateControls';
 import { GateSelector } from '../components/controls/GateSelector';
 import {
   Card,
+  EmptyState,
   ErrorState,
   Legend,
-  LoadingState,
+  PageSkeleton,
   StatTile,
   StatusPill,
   Tag,
 } from '../components/ui/primitives';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useUrlPatch } from '../hooks/useUrlState';
 import { fmtMW, fmtNumber, fmtPct, fmtShortDay, fmtSignedGWh, fmtSignedMW } from '../lib/format';
-import { overForecastShare, vintageTradeOff } from '../lib/insights';
+import { errorDirection, vintageTradeOff } from '../lib/insights';
 import { parseDateParam, parseGateParam } from '../lib/params';
 import { cx } from '../lib/cx';
 
 export function ForecastAccuracy() {
+  useDocumentTitle('Forecast Accuracy');
   const meta = useMeta();
-  if (meta.isPending) return <LoadingState label="Loading scope…" />;
+  if (meta.isPending) return <PageSkeleton label="Loading scope…" />;
   if (meta.isError) return <ErrorState error={meta.error} onRetry={() => meta.refetch()} />;
   return <Accuracy meta={meta.data} />;
 }
@@ -71,7 +74,7 @@ function Accuracy({ meta }: { meta: MetaResponse }) {
           onChange={(f, t) => patch({ from: f === min ? null : f, to: t === max ? null : t })}
         />
       </div>
-      {query.isPending && <LoadingState label="Scoring every decision…" />}
+      {query.isPending && <PageSkeleton label="Scoring every decision…" />}
       {query.isError && <ErrorState error={query.error} onRetry={() => query.refetch()} />}
       {query.data && (
         <div
@@ -105,7 +108,7 @@ function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) 
     },
     [data.daily, gate, navigate],
   );
-  const overShare = overForecastShare(data.scatter);
+  const direction = errorDirection(data.scatter);
   const tradeOff = vintageTradeOff(data.by_vintage);
   const coverage = data.band_coverage;
 
@@ -117,14 +120,19 @@ function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) 
           {data.gate.gate} UK
         </h2>
         <ul className="mt-2 space-y-1.5 text-sm text-ink-secondary">
-          {s.bias_mw != null && overShare != null && (
+          {s.bias_mw != null && direction != null && (
             <li>
-              The forecast was <span className="text-ink">{s.bias_mw > 0 ? 'above' : 'below'}</span>{' '}
-              actual output in <span className="text-ink">{fmtPct(overShare, 0)}</span> of hours.
-              The average bias was <span className="text-ink">{fmtSignedMW(s.bias_mw)}</span> and
-              the total energy error was{' '}
+              The forecast was above actual output in{' '}
+              <span className="text-ink">{fmtPct(direction.overPct, 0)}</span> of hours and below it
+              in <span className="text-ink">{fmtPct(direction.underPct, 0)}</span>. The average bias
+              was <span className="text-ink">{fmtSignedMW(s.bias_mw)}</span> and the total energy
+              error was{' '}
               <span className="text-ink">{fmtSignedGWh((s.energy_error_mwh ?? 0) / 1000, 0)}</span>.
-              {s.bias_mw > 0 && ' Planning on the raw forecast would have overstated wind supply.'}
+              {s.bias_mw > 0
+                ? ' On balance, planning on the raw forecast would have overstated wind supply.'
+                : s.bias_mw < 0
+                  ? ' On balance, planning on the raw forecast would have understated wind supply.'
+                  : ''}
             </li>
           )}
           <li>
@@ -145,32 +153,69 @@ function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) 
           )}
           {coverage.available && coverage.coverage_pct != null && (
             <li>
-              The P10–P90 band contained the actual in{' '}
-              <span className="text-ink">{fmtPct(coverage.coverage_pct)}</span> of held-out hours,
-              against a nominal {fmtPct(coverage.nominal_pct, 0)}.
+              The hourly P10–P90 band contained the actual in{' '}
+              <span className="text-ink">{fmtPct(coverage.coverage_pct)}</span> of held-out hours
+              {coverage.daily_energy.coverage_pct != null && (
+                <>
+                  {' '}
+                  and the daily energy range in{' '}
+                  <span className="text-ink">
+                    {fmtPct(coverage.daily_energy.coverage_pct, 0)}
+                  </span>{' '}
+                  of days
+                </>
+              )}
+              , against a nominal {fmtPct(coverage.nominal_pct, 0)}.
             </li>
           )}
         </ul>
       </Card>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatTile emphasis label="MAE" value={fmtMW(s.mae_mw)} />
-        <StatTile label="RMSE" value={fmtMW(s.rmse_mw)} />
-        <StatTile label="Bias (mean error)" value={fmtSignedMW(s.bias_mw)} />
-        <StatTile label="WAPE" value={fmtPct(s.wape_pct)} detail="Σ|error| / Σ actual" />
+        <StatTile
+          emphasis
+          label="MAE"
+          value={fmtMW(s.mae_mw)}
+          hint="Mean absolute error: the average size of the hourly miss, ignoring direction."
+        />
+        <StatTile
+          label="RMSE"
+          value={fmtMW(s.rmse_mw)}
+          hint="Root mean squared error. Penalises large misses more than MAE; RMSE well above MAE means occasional big misses."
+        />
+        <StatTile
+          label="Bias (mean error)"
+          value={fmtSignedMW(s.bias_mw)}
+          detail="forecast − actual"
+          hint="Average signed error. Positive = the forecast expected more wind than arrived (over-forecast)."
+        />
+        <StatTile
+          label="WAPE"
+          value={fmtPct(s.wape_pct)}
+          detail="Σ|error| / Σ actual"
+          hint="Weighted absolute percentage error: total absolute error as a share of total actual output. Used instead of MAPE, which explodes when wind output is low."
+        />
         <StatTile
           label="P90 absolute error"
           value={fmtMW(s.p90_abs_error_mw)}
           detail={`P50 ${fmtMW(s.p50_abs_error_mw)}`}
+          hint="Nine hours in ten missed by less than this; one in ten missed by more. P50 is the median miss."
         />
         <StatTile
           label="P99 / max error"
           value={fmtMW(s.p99_abs_error_mw)}
           detail={`max ${fmtMW(s.max_abs_error_mw)}`}
+          hint="Tail risk: the 99th percentile and the single largest hourly miss in the range."
         />
-        <StatTile label="Correlation" value={fmtNumber(s.correlation, 3)} detail="Pearson r" />
+        <StatTile
+          label="Correlation"
+          value={fmtNumber(s.correlation, 3)}
+          detail="Pearson r, unitless"
+          hint="How well the forecast tracks the shape of actual output (1 = perfect). A high r with a large bias means the shape is right but the level is off."
+        />
         <StatTile
           label="Matched hours"
+          hint="Hours with both a forecast available at the gate and a complete hourly actual. All statistics use matched hours only."
           value={`${s.n_matched}/${s.n_expected}`}
           detail={
             <StatusPill status={s.n_matched === s.n_expected ? 'good' : 'warning'}>
@@ -321,13 +366,20 @@ function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) 
                   </li>
                 ))}
               </ul>
+              {coverage.daily_energy.coverage_pct != null && (
+                <p className="mt-3 text-xs text-ink-secondary">
+                  Daily energy range: {fmtPct(coverage.daily_energy.coverage_pct, 0)} of{' '}
+                  {coverage.daily_energy.n_days} days inside P10–P90.
+                </p>
+              )}
               <p className="mt-3 text-xs text-ink-muted">
-                This is an empirical interval from one month of data, not a confidence guarantee.
-                Errors within a day are correlated.
+                Empirical intervals from one month of data, not a confidence guarantee. Errors
+                within a day, and across neighbouring days, are correlated, so coverage on new data
+                may be lower.
               </p>
             </>
           ) : (
-            <p className="text-sm text-ink-muted">Not enough history to evaluate a band.</p>
+            <EmptyState title="Not enough history to evaluate a band" />
           )}
         </Card>
       </div>

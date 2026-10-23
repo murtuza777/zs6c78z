@@ -19,15 +19,14 @@ export function GateSelector({ presets, value, onChange }: Props) {
   return (
     <fieldset className="min-w-0">
       <legend className="mb-1.5 text-xs text-ink-muted">Gate closure scenario (UK time)</legend>
-      <div className="flex flex-wrap items-center gap-1.5" role="radiogroup">
+      <div className="flex flex-wrap items-center gap-1.5">
         {presets.map((preset) => {
           const active = preset.gate === value && !customOpen;
           return (
             <button
               key={preset.id}
               type="button"
-              role="radio"
-              aria-checked={active}
+              aria-pressed={active}
               title={`${preset.description} Source: ${preset.source} (verified ${preset.verified_on}).`}
               onClick={() => {
                 setCustomOpen(false);
@@ -48,8 +47,7 @@ export function GateSelector({ presets, value, onChange }: Props) {
         })}
         <button
           type="button"
-          role="radio"
-          aria-checked={showCustom}
+          aria-pressed={showCustom}
           onClick={() => setCustomOpen(true)}
           className={cx(
             'rounded-md px-2.5 py-1.5 text-xs ring-1 ring-inset',

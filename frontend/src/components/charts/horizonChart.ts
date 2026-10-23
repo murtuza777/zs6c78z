@@ -8,6 +8,7 @@ import {
   C,
   legendCommon,
   mwAxis,
+  responsive,
   tooltipRow,
   tooltipTitle,
 } from './theme';
@@ -29,7 +30,7 @@ export function buildHorizonOption(data: HorizonResponse): ChartOption {
   const byTime = new Map(rows.map((r, i) => [times[i]!, r]));
   const interval = span > 4 * DAY_MS ? DAY_MS : span > DAY_MS ? 6 * HOUR_MS : 3 * HOUR_MS;
 
-  return {
+  const option = {
     ...baseOption,
     grid: { left: 8, right: 16, top: 52, bottom: 56, containLabel: true },
     legend: { ...legendCommon, data: ['Forecast', 'Actual (hourly mean)'] },
@@ -98,4 +99,8 @@ export function buildHorizonOption(data: HorizonResponse): ChartOption {
       },
     ],
   };
+  return responsive(option, {
+    grid: { top: 72 },
+    xAxis: { interval: interval >= DAY_MS ? 7 * DAY_MS : 2 * interval },
+  });
 }

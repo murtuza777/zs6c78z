@@ -37,6 +37,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-raised focus:px-3 focus:py-2 focus:text-sm focus:text-ink focus:ring-2 focus:ring-accent"
+      >
+        Skip to content
+      </a>
       <header className="sticky top-0 z-20 border-b border-line bg-page/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
           <NavLink to={`/brief${carry}`} className="flex items-center gap-2.5">
@@ -74,7 +80,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-5 sm:py-6">{children}</main>
+      <main
+        id="main"
+        tabIndex={-1}
+        className="mx-auto max-w-7xl px-4 py-5 focus:outline-none sm:py-6"
+      >
+        {children}
+      </main>
       <footer className="mx-auto max-w-7xl px-4 pb-8 pt-2 text-xs text-ink-muted">
         Data: Elexon BMRS FUELHH (WIND outturn) and WINDFOR (wind forecast), January 2026 decision
         scope. Decision support only: wind forecast error is not procurement error.

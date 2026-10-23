@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 
 import { useMeta } from '../api/hooks';
-import { Card, ErrorState, LoadingState } from '../components/ui/primitives';
+import { Card, ErrorState, PageSkeleton } from '../components/ui/primitives';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { fmtNumber, fmtUkDateTime } from '../lib/format';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -17,8 +18,9 @@ const Code = ({ children }: { children: ReactNode }) => (
 );
 
 export function Methodology() {
+  useDocumentTitle('Methodology');
   const meta = useMeta();
-  if (meta.isPending) return <LoadingState />;
+  if (meta.isPending) return <PageSkeleton label="Loading methodology…" />;
   if (meta.isError) return <ErrorState error={meta.error} onRetry={() => meta.refetch()} />;
   const m = meta.data;
 
@@ -166,17 +168,52 @@ export function Methodology() {
           </ul>
         </Section>
 
-        <Section title="Uncertainty band (P10–P90)">
+        <Section title="Error statistics on the Day-Ahead Brief">
           <p>
-            Errors from the forecasts selected at the gate are grouped into {m.horizon_bucket_h}
-            -hour lead-time buckets. For each delivery day, the band uses the 10th and 90th error
-            percentiles from <strong className="text-ink">all other</strong> January delivery days
-            (leave-one-day-out). The band is shown only when a bucket has at least 48 observations
-            from 10 days. Its held-out coverage appears on the Accuracy page. It is an empirical
-            range, not a guaranteed confidence interval.
+            <strong className="text-ink">Typical error, known at gate</strong> uses only delivery
+            days that had <em>ended before the decision day began</em>, at the same gate and
+            lead-time buckets. It is what the desk could actually have known (none on 1 Jan, 13 days
+            by 15 Jan).
+          </p>
+          <p>
+            <strong className="text-ink">All other days</strong> and the uncertainty bands use every
+            other January delivery day, including later ones. This is pilot calibration for a
+            one-month backtest. A live deployment would use trailing history only.
           </p>
         </Section>
 
+        <Section title="Uncertainty bands (P10–P90)">
+          <p>
+            <strong className="text-ink">Hourly band:</strong> errors of the forecasts selected at
+            the gate are grouped into {m.band.bucket_h}-hour lead-time buckets. For each delivery
+            day, the band is forecast − the {fmtNumber(m.band.upper_quantile * 100)}th and{' '}
+            {fmtNumber(m.band.lower_quantile * 100)}th error percentiles from{' '}
+            <strong className="text-ink">all other</strong> delivery days (leave-one-day-out),
+            clipped at 0 MW. A bucket needs at least {m.band.min_obs} observations from{' '}
+            {m.band.min_days} days, otherwise no band is shown.
+          </p>
+          <p>
+            <strong className="text-ink">Daily energy range:</strong> hourly quantiles do not add up
+            to a daily quantile, so the delivery-day GWh range uses the 10th–90th percentile of{' '}
+            <em>daily</em> energy errors on other fully forecast days (at least{' '}
+            {m.band.min_energy_days}). It is not shown for partially forecast days.
+          </p>
+          <p>
+            Held-out coverage of both is reported on the Accuracy page. These are empirical ranges
+            from one autocorrelated month, not guaranteed confidence intervals.
+          </p>
+        </Section>
+
+        <Section title="Data-quality signals">
+          <p>
+            Coverage pills count hours that have a forecast and a complete actual. A{' '}
+            <strong className="text-ink">stale feed</strong> warning appears when two or more
+            consecutive WINDFOR runs repeated identical values for the delivery day: the forecast is
+            then older than its publish time suggests. A run published late (e.g. 12:25 instead of
+            11:30) counts in its slot, but is only available to gates after its real publication
+            time.
+          </p>
+        </Section>
         <Section title="Known limitations">
           <ul className="list-disc space-y-1 pl-5">
             <li>
@@ -189,8 +226,17 @@ export function Methodology() {
               constraint actions may explain part of this. The supplied data cannot confirm it.
             </li>
             <li>
-              One month of history; errors are autocorrelated, so the band’s coverage estimate is
-              uncertain.
+              One month of history; errors are autocorrelated within and across days, so band
+              coverage estimates are uncertain, and the leave-one-day-out pool includes days after
+              each decision (pilot calibration).
+            </li>
+            <li>
+              The delivery day is the UK settlement day (00:00–24:00). Some exchange products use
+              other delivery periods.
+            </li>
+            <li>
+              <Code>publishTime</Code> is treated as the moment a forecast became available. Any
+              real publication lag can be modelled with an earlier custom gate.
             </li>
             <li>
               WINDFOR’s exact value semantics (hourly mean or instant) are not documented. The

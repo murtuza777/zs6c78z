@@ -61,6 +61,7 @@ export function DecisionDatePicker({
 
 export function DateRangeFields({
   label,
+  resetLabel = 'All January',
   from,
   to,
   min,
@@ -68,6 +69,7 @@ export function DateRangeFields({
   onChange,
 }: {
   label: string;
+  resetLabel?: string;
   from: string;
   to: string;
   min: string;
@@ -99,7 +101,7 @@ export function DateRangeFields({
         />
         {(from !== min || to !== max) && (
           <button type="button" className={stepClass} onClick={() => onChange(min, max)}>
-            All January
+            {resetLabel}
           </button>
         )}
       </div>

@@ -8,6 +8,7 @@ import {
   C,
   legendCommon,
   mwAxis,
+  responsive,
   tooltipRow,
   tooltipTitle,
 } from './theme';
@@ -165,8 +166,10 @@ export function buildDecisionOption(
       name: SERIES.actual,
       type: 'line',
       data: rows.map((r) => [ms(r.start_time), r.actual_mw]),
-      showSymbol: false,
-      symbolSize: 8,
+      // Markers give actuals a second, non-colour cue next to the plain forecast line.
+      symbol: 'circle',
+      showSymbol: true,
+      symbolSize: 6,
       lineStyle: { width: 2, color: C.actual, cap: 'round', join: 'round' },
       itemStyle: { color: C.actual, borderColor: C.surface, borderWidth: 2 },
       z: 5,
@@ -181,7 +184,7 @@ export function buildDecisionOption(
     if (reveal) legend.push(SERIES.later);
   }
 
-  return {
+  const option = {
     ...baseOption,
     grid: { left: 8, right: 16, top: 52, bottom: 8, containLabel: true },
     legend: { ...legendCommon, data: legend },
@@ -212,4 +215,9 @@ export function buildDecisionOption(
     yAxis: { ...mwAxis(), min: 0 },
     series,
   };
+  return responsive(option, {
+    grid: { top: 96 },
+    legend: { itemGap: 10, textStyle: { fontSize: 11 } },
+    xAxis: { interval: 6 * HOUR_MS },
+  });
 }

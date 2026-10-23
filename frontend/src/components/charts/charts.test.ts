@@ -5,7 +5,10 @@ import { binTone, histogramOption, vintageOption } from './accuracyCharts';
 import { bandSegments, buildDecisionOption, SERIES } from './decisionChart';
 
 type Series = { name?: string; type?: string; data?: unknown[] };
-const seriesOf = (option: unknown) => (option as { series: Series[] }).series;
+// Builders may wrap their option in { baseOption, media } for responsive layouts.
+const seriesOf = (option: unknown) =>
+  ((option as { baseOption?: { series: Series[] } }).baseOption ?? (option as { series: Series[] }))
+    .series;
 const names = (option: unknown) => seriesOf(option).map((s) => s.name);
 
 describe('decision chart', () => {
@@ -49,5 +52,22 @@ describe('accuracy charts', () => {
       itemStyle: { color: string };
     }[];
     expect(new Set(data.map((d) => d.itemStyle.color)).size).toBe(2);
+  });
+});
+
+describe('non-colour encodings', () => {
+  it('draws actuals with markers so they differ from the forecast by shape', () => {
+    const series = seriesOf(buildDecisionOption(decision, { reveal: true, showRevisions: false }));
+    const actual = series.find((s) => s.name === SERIES.actual) as { showSymbol?: boolean };
+    const forecast = series.find((s) => s.name === SERIES.forecast) as { showSymbol?: boolean };
+    expect(actual.showSymbol).toBe(true);
+    expect(forecast.showSymbol).toBe(false);
+  });
+
+  it('labels the post-gate region of the vintage chart', () => {
+    const bar = seriesOf(vintageOption(accuracy.by_vintage))[0] as {
+      markArea?: { data: [{ xAxis: string; name: string }, { xAxis: string }][] };
+    };
+    expect(bar.markArea?.data[0]?.[0]).toMatchObject({ xAxis: '22:30', name: 'After gate' });
   });
 });
