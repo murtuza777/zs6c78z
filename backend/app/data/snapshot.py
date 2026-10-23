@@ -57,12 +57,14 @@ def write_snapshot(
     directory.mkdir(parents=True, exist_ok=True)
     actuals_path = directory / ACTUALS_FILE
     forecasts_path = directory / FORECASTS_FILE
+    # Explicit "\n": pandas defaults to os.linesep, which made Windows and Linux runs produce
+    # different bytes (and snapshot versions) for identical data.
     _serialise(
         actuals,
         ["start_time", "settlement_date", "settlement_period", "generation_mw", "publish_time"],
-    ).to_csv(actuals_path, index=False, compression=_GZIP)
+    ).to_csv(actuals_path, index=False, compression=_GZIP, lineterminator="\n")
     _serialise(forecasts, ["publish_time", "start_time", "generation_mw"]).to_csv(
-        forecasts_path, index=False, compression=_GZIP
+        forecasts_path, index=False, compression=_GZIP, lineterminator="\n"
     )
 
     files = {

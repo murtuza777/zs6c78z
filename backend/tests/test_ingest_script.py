@@ -92,3 +92,12 @@ def test_same_input_produces_the_same_snapshot_version(tmp_path):
     second = run(tmp_path / "b", client=FakeClient(), decision_range=ONE_DAY)
     assert first["snapshot_version"] == second["snapshot_version"]
     assert first["files"] == second["files"]
+
+
+def test_snapshot_bytes_do_not_depend_on_the_platform(tmp_path):
+    import gzip
+
+    run(tmp_path / "snapshot", client=FakeClient(), decision_range=ONE_DAY)
+    for name in ("actuals_wind_halfhourly.csv.gz", "forecasts_wind.csv.gz"):
+        raw = gzip.decompress((tmp_path / "snapshot" / name).read_bytes())
+        assert b"\r\n" not in raw  # LF only, whatever os.linesep is
