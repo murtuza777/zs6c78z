@@ -414,6 +414,22 @@ class AnalyticsService:
                     matched.index, matched["forecast_mw"], matched["actual_mw"], strict=True
                 )
             ],
+            # Every expected hour, matched or not, so gaps stay visible on the timeline.
+            "timeline": [
+                {
+                    "start_time": t.to_pydatetime(),
+                    "forecast_mw": _clean(fc),
+                    "actual_mw": _clean(ac),
+                    "publish_time": _clean(pt),
+                }
+                for t, fc, ac, pt in zip(
+                    sub.index,
+                    sub["forecast_mw"],
+                    sub["actual_mw"],
+                    sub["publish_time"],
+                    strict=True,
+                )
+            ],
             "worst_days": worst,
             "band_coverage": {**coverage, "method": METHOD},
             "snapshot": self.snapshot_info,

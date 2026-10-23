@@ -46,6 +46,13 @@ class ScatterPoint(BaseModel):
     actual_mw: float
 
 
+class TimelinePoint(BaseModel):
+    start_time: datetime
+    forecast_mw: float | None = Field(description="Forecast selected at the gate (null if none)")
+    actual_mw: float | None = Field(description="Hourly mean actual (null if incomplete)")
+    publish_time: datetime | None
+
+
 class BucketCoverage(BaseModel):
     bucket_h: float
     label: str
@@ -80,6 +87,7 @@ class AccuracyResponse(BaseModel):
     histogram: list[HistogramBin]
     histogram_bin_width_mw: float
     scatter: list[ScatterPoint]
+    timeline: list[TimelinePoint] = Field(description="Every expected hour in range, chronological")
     worst_days: list[DailyAccuracy]
     band_coverage: BandCoverage
     snapshot: SnapshotInfo

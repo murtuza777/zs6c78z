@@ -89,6 +89,12 @@ def test_accuracy_contract_and_known_answers(client):
     assert {v.slot: v.available_at_gate for v in body.by_vintage}["11:30"] is False
     assert sum(b.count for b in body.histogram) == body.summary.n_matched
     assert len(body.scatter) == body.summary.n_matched
+    # Timeline: every expected hour, chronological, with gaps kept as nulls.
+    assert len(body.timeline) == body.summary.n_expected
+    times = [p.start_time for p in body.timeline]
+    assert times == sorted(times)
+    assert sum(p.actual_mw is None for p in body.timeline) == body.summary.n_missing_actual
+    assert all(p.publish_time <= p.start_time for p in body.timeline if p.publish_time)
     assert body.band_coverage.available
 
 
