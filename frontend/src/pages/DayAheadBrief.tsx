@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { useDecision, useMeta } from '../api/hooks';
 import type { DecisionResponse, MetaResponse, Revision } from '../api/types';
@@ -6,6 +6,7 @@ import { buildDecisionOption } from '../components/charts/decisionChart';
 import { EChart } from '../components/charts/EChart';
 import { DecisionDatePicker } from '../components/controls/DateControls';
 import { GateSelector } from '../components/controls/GateSelector';
+import { ProcurementWhatIf } from '../components/ProcurementWhatIf';
 import {
   Button,
   Card,
@@ -35,6 +36,7 @@ import {
 } from '../lib/format';
 import { readDay } from '../lib/insights';
 import { parseDateParam, parseGateParam } from '../lib/params';
+import { parsePlanInputs, planProcurement, type ProcurementPlan } from '../lib/procurement';
 import { cx } from '../lib/cx';
 
 /** Runs repeating identical values before we flag the feed as stale. */
@@ -50,16 +52,31 @@ export function DayAheadBrief() {
 
 function Brief({ meta }: { meta: MetaResponse }) {
   const [params, patch] = useUrlPatch();
+  // Default to the latest decision: it has the most completed January history behind it.
   const date = parseDateParam(
     params.get('date'),
     meta.decision_date_min,
     meta.decision_date_max,
-    meta.decision_date_min,
+    meta.decision_date_max,
   );
   const gate = parseGateParam(params.get('gate'), meta.default_gate);
   const reveal = params.get('reveal') === '1';
   const showRevisions = params.get('revisions') !== '0';
+  const demand = params.get('demand') ?? '';
+  const share = params.get('share') ?? '100';
   const query = useDecision(date, gate);
+  const setWhatIf = useCallback(
+    (values: { demand?: string; share?: string }) => {
+      const next: Record<string, string | null> = {};
+      if (values.demand !== undefined) next.demand = values.demand.trim() || null;
+      if (values.share !== undefined) {
+        const v = values.share.trim();
+        next.share = v === '' || v === '100' ? null : v;
+      }
+      patch(next);
+    },
+    [patch],
+  );
 
   return (
     <div className="space-y-4">
@@ -105,7 +122,14 @@ function Brief({ meta }: { meta: MetaResponse }) {
         <div
           className={cx('space-y-4 transition-opacity', query.isPlaceholderData && 'opacity-60')}
         >
-          <BriefBody data={query.data} reveal={reveal} showRevisions={showRevisions} />
+          <BriefBody
+            data={query.data}
+            reveal={reveal}
+            showRevisions={showRevisions}
+            demand={demand}
+            share={share}
+            onWhatIfChange={setWhatIf}
+          />
         </div>
       )}
     </div>
@@ -116,11 +140,23 @@ function BriefBody({
   data,
   reveal,
   showRevisions,
+  demand,
+  share,
+  onWhatIfChange,
 }: {
   data: DecisionResponse;
   reveal: boolean;
   showRevisions: boolean;
+  demand: string;
+  share: string;
+  onWhatIfChange: (values: { demand?: string; share?: string }) => void;
 }) {
+  const inputs = parsePlanInputs(demand, share);
+  const plan = useMemo(
+    () =>
+      inputs.demandMw == null ? null : planProcurement(data.rows, inputs.demandMw, inputs.sharePct),
+    [data.rows, inputs.demandMw, inputs.sharePct],
+  );
   const option = useMemo(
     () => buildDecisionOption(data, { reveal, showRevisions }),
     [data, reveal, showRevisions],
@@ -201,6 +237,15 @@ function BriefBody({
         </div>
       </section>
 
+      <ProcurementWhatIf
+        data={data}
+        reveal={reveal}
+        plan={plan}
+        demand={demand}
+        share={share}
+        onChange={onWhatIfChange}
+      />
+
       {reveal ? (
         <section aria-labelledby="hindsight-heading">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -272,7 +317,7 @@ function BriefBody({
       </Card>
 
       {showRevisions && <RevisionTable revisions={data.revisions} reveal={reveal} />}
-      <ObservationTable data={data} reveal={reveal} />
+      <ObservationTable data={data} reveal={reveal} plan={plan} />
     </>
   );
 }
@@ -419,9 +464,17 @@ function diffEnergy(run: Revision, reference: Revision): number | null {
   return n ? sum : null;
 }
 
-function ObservationTable({ data, reveal }: { data: DecisionResponse; reveal: boolean }) {
+function ObservationTable({
+  data,
+  reveal,
+  plan,
+}: {
+  data: DecisionResponse;
+  reveal: boolean;
+  plan: ProcurementPlan | null;
+}) {
   const exportCsv = () => {
-    const { filename, csv } = decisionCsv(data, reveal);
+    const { filename, csv } = decisionCsv(data, reveal, plan);
     downloadCsv(filename, csv);
   };
 
@@ -444,6 +497,12 @@ function ObservationTable({ data, reveal }: { data: DecisionResponse; reveal: bo
               <th className="py-2 pr-3 font-medium">Published (UK)</th>
               <th className="py-2 pr-3 text-right font-medium">Lead</th>
               <th className="py-2 pr-3 text-right font-medium">P10–P90</th>
+              {plan && (
+                <>
+                  <th className="py-2 pr-3 text-right font-medium">Buy if forecast</th>
+                  <th className="py-2 pr-3 text-right font-medium">Buy if P10 wind</th>
+                </>
+              )}
               {reveal && (
                 <>
                   <th className="py-2 pr-3 text-right font-medium text-[#f0c36b]">Actual</th>
@@ -454,7 +513,7 @@ function ObservationTable({ data, reveal }: { data: DecisionResponse; reveal: bo
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((r) => (
+            {data.rows.map((r, i) => (
               <tr key={r.start_time} className="border-b border-line/50 last:border-0">
                 <td className="py-1.5 pr-3 text-ink">
                   {fmtUkTime(r.start_time)}–{fmtUkTime(r.end_time)}
@@ -469,6 +528,16 @@ function ObservationTable({ data, reveal }: { data: DecisionResponse; reveal: bo
                     ? '—'
                     : `${fmtNumber(r.band_p10_mw)}–${fmtNumber(r.band_p90_mw)}`}
                 </td>
+                {plan && (
+                  <>
+                    <td className="py-1.5 pr-3 text-right text-ink">
+                      {fmtNumber(plan.hours[i]?.buy_forecast_mw)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-ink-secondary">
+                      {fmtNumber(plan.hours[i]?.buy_low_wind_mw)}
+                    </td>
+                  </>
+                )}
                 {reveal && (
                   <>
                     <td className="py-1.5 pr-3 text-right text-ink">{fmtNumber(r.actual_mw)}</td>

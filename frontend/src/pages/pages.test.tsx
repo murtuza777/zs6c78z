@@ -53,7 +53,7 @@ describe('Day-Ahead Brief', () => {
   it('falls back to safe defaults for invalid URL params', async () => {
     renderAt('/brief?date=2026-03-01&gate=25:99', <DayAheadBrief />, '/brief');
     await screen.findByText('Fri 16 Jan 2026');
-    expect(api.decision).toHaveBeenCalledWith('2026-01-01', '09:50');
+    expect(api.decision).toHaveBeenCalledWith('2026-01-31', '09:50'); // latest decision
   });
 
   it('reveals hindsight metrics and actual columns on demand', async () => {
@@ -136,5 +136,31 @@ describe('accuracy findings wording', () => {
     renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
     const findings = await screen.findByText(/above actual output in/);
     expect(findings).toHaveTextContent('understated wind supply');
+  });
+});
+
+describe('procurement what-if', () => {
+  it('turns a demand into volumes to buy, from the same rows as the table', async () => {
+    renderAt('/brief?date=2026-01-15&demand=30000', <DayAheadBrief />, '/brief');
+    // Fixture: forecast 10,000 MW and P10 7,000 MW for 23 hours (hour 05 has no band).
+    expect(await screen.findByText('Buy if wind matches the forecast')).toBeInTheDocument();
+    expect(screen.getByText('480.0 GWh')).toBeInTheDocument(); // 24 h x (30,000 - 10,000)
+    expect(screen.getByText('hourly P10 band unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Buy if forecast')).toBeInTheDocument(); // table column
+  });
+
+  it('offers an example demand when none is set', async () => {
+    const user = userEvent.setup();
+    renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
+    await user.click(await screen.findByRole('button', { name: /example demand/i }));
+    expect(await screen.findByText('480.0 GWh', {}, { timeout: 2000 })).toBeInTheDocument();
+  });
+
+  it('compares the plans with what was actually needed only in hindsight mode', async () => {
+    renderAt('/brief?date=2026-01-15&demand=30000&reveal=1', <DayAheadBrief />, '/brief');
+    expect(await screen.findByText('Actually needed')).toBeInTheDocument();
+    // actual 8,800 MW -> need 24 x 21,200 = 508.8 GWh; forecast plan short by 28.8 GWh
+    expect(screen.getByText('508.8 GWh')).toBeInTheDocument();
+    expect(screen.getByText(/forecast plan short by 28.8 GWh/)).toBeInTheDocument();
   });
 });

@@ -204,6 +204,33 @@ export function Methodology() {
           </p>
         </Section>
 
+        <Section title="Procurement what-if (Day-Ahead Brief)">
+          <p>
+            You enter a flat demand <Code>D</Code> (MW) and the share <Code>s</Code> of national
+            wind you can count on. For each delivery hour WindDesk computes:
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              <strong className="text-ink">Buy if wind matches the forecast</strong> = max(0, D − s
+              × forecast);
+            </li>
+            <li>
+              <strong className="text-ink">Buy to cover low wind</strong> = max(0, D − s × hourly
+              P10);
+            </li>
+            <li>
+              <strong className="text-ink">Actually needed</strong> (hindsight only) = max(0, D − s
+              × actual).
+            </li>
+          </ul>
+          <p>
+            Hourly MW sum to MWh, which is shown as GWh. The difference between the two plans is the
+            extra volume bought because the forecast is uncertain. Only hours that have a forecast
+            are planned, and hindsight compares the same hours. This is illustrative: WindDesk has
+            no demand, contract or price data, and does not recommend trades.
+          </p>
+        </Section>
+
         <Section title="Data-quality signals">
           <p>
             Coverage pills count hours that have a forecast and a complete actual. A{' '}

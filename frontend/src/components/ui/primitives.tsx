@@ -84,8 +84,9 @@ export function StatTile({
 }) {
   return (
     <div className="relative min-w-0 rounded-lg bg-raised/60 px-3 py-2.5">
-      <div className="flex items-center text-xs text-ink-muted">
-        <span className="truncate">{label}</span>
+      <div className="flex items-start text-xs leading-snug text-ink-muted">
+        {/* Labels wrap rather than truncate, so narrow screens keep the full meaning. */}
+        <span className="min-w-0">{label}</span>
         {hint && <InfoHint label={label}>{hint}</InfoHint>}
       </div>
       <div

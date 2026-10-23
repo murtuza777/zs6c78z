@@ -58,3 +58,18 @@ describe('error direction', () => {
     expect(errorDirection([])).toBeNull();
   });
 });
+
+describe('decision CSV with a what-if plan', () => {
+  it('adds buy columns that match the plan, hour by hour', async () => {
+    const { planProcurement } = await import('./procurement');
+    const plan = planProcurement(decision.rows, 30_000, 100);
+    const [header, ...rows] = parse(decisionCsv(decision, true, plan).csv);
+    const col = (name: string) => header!.indexOf(name);
+    expect(header).toContain('buy_if_forecast_mw');
+    expect(header).toContain('need_given_actual_mw');
+    expect(Number(rows[0]![col('buy_if_forecast_mw')])).toBe(
+      30_000 - decision.rows[0]!.forecast_mw!,
+    );
+    expect(Number(rows[0]![col('what_if_demand_mw')])).toBe(30_000);
+  });
+});

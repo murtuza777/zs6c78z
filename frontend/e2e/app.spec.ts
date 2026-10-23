@@ -78,7 +78,7 @@ test.describe('Day-Ahead Brief', () => {
   test('invalid URL parameters fall back to safe defaults', async ({ page }) => {
     await page.goto('/brief?date=2030-01-01&gate=99:99');
     const line = await headline(page);
-    await expect(line).toContainText('09:50 UK on Thu 1 Jan 2026');
+    await expect(line).toContainText('09:50 UK on Sat 31 Jan 2026'); // latest decision
   });
 
   test('API failures show an actionable error that can be retried', async ({ page }) => {
@@ -97,7 +97,62 @@ test.describe('Day-Ahead Brief', () => {
   });
 });
 
+test.describe('Landing and procurement what-if', () => {
+  test('the app opens on the latest decision, with history known at the gate', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/brief/);
+    const line = await headline(page);
+    await expect(line).toContainText('09:50 UK on Sat 31 Jan 2026');
+    await expect(page.getByText(/On the 29 January delivery days completed/)).toBeVisible();
+  });
+
+  test('typing a demand shows how much to buy, kept in the URL and in hindsight', async ({
+    page,
+  }) => {
+    await page.goto(brief);
+    await page.getByLabel('Your demand, MW (flat across the day)').fill('30000');
+    await expect(page).toHaveURL(/demand=30000/);
+    // 24 h x 30,000 MW = 720 GWh demand; forecast wind 267.2 GWh
+    await expect(page.getByText('452.8 GWh')).toBeVisible();
+    await page.reload();
+    await expect(page.getByText('452.8 GWh')).toBeVisible();
+    await page.getByRole('switch', { name: 'Reveal actuals' }).click();
+    // The forecast plan's shortfall equals the day's energy error (+129.0 GWh).
+    await expect(page.getByText(/forecast plan short by 129\.0 GWh/)).toBeVisible();
+  });
+
+  test('the example button and CSV include the plan', async ({ page }) => {
+    await page.goto(brief);
+    await page.getByRole('button', { name: /example demand/i }).click();
+    await expect(page).toHaveURL(/demand=30000/);
+    const downloading = page.waitForEvent('download');
+    await page.getByRole('button', { name: /export hourly observations as csv/i }).click();
+    const text = await readFile((await (await downloading).path())!, 'utf-8');
+    const [header, first] = text.slice(1).split('\r\n');
+    expect(header).toContain('buy_if_forecast_mw');
+    const cols = header!.split(',');
+    const values = first!.split(',');
+    const forecast = Number(values[cols.indexOf('forecast_mw')]);
+    expect(Number(values[cols.indexOf('buy_if_forecast_mw')])).toBe(30000 - forecast);
+  });
+});
+
 test.describe('Forecast Accuracy', () => {
+  test('January timeline plots the gate-time forecast for every hour', async ({ page }) => {
+    await page.goto('/accuracy?gate=09:50');
+    await expect(
+      page.getByRole('img', {
+        name: /forecast available at 09:50 and actual wind generation, 744 hours/,
+      }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: /09:20/ }).click();
+    await expect(
+      page.getByRole('img', {
+        name: /forecast available at 09:20 and actual wind generation, 744 hours/,
+      }),
+    ).toBeVisible();
+  });
+
   test('worst-day link opens the brief in hindsight mode and back returns', async ({ page }) => {
     await page.goto('/accuracy?gate=09:50');
     await expect(page.getByText(/above actual output in 84% of hours/)).toBeVisible();
@@ -141,7 +196,12 @@ test('unknown routes render the in-app not-found page', async ({ page }) => {
 });
 
 test.describe('responsive layout @mobile', () => {
-  for (const path of ['/brief?date=2026-01-27&reveal=1', '/accuracy', '/horizon', '/methodology']) {
+  for (const path of [
+    '/brief?date=2026-01-27&reveal=1&demand=30000',
+    '/accuracy',
+    '/horizon',
+    '/methodology',
+  ]) {
     test(`no horizontal page overflow on ${path} @mobile`, async ({ page }) => {
       await page.goto(path);
       await expect(page.locator('main h1')).toBeVisible();
