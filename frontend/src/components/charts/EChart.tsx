@@ -1,6 +1,5 @@
 import { BarChart, CustomChart, LineChart, ScatterChart } from 'echarts/charts';
 import {
-  AriaComponent,
   DataZoomComponent,
   GridComponent,
   LegendComponent,
@@ -23,7 +22,6 @@ echarts.use([
   DataZoomComponent,
   MarkLineComponent,
   MarkAreaComponent,
-  AriaComponent,
   CanvasRenderer,
 ]);
 

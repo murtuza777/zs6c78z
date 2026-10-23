@@ -101,5 +101,7 @@ export const baseOption = {
   backgroundColor: 'transparent',
   animationDuration: 250,
   textStyle: { fontFamily: FONT },
-  aria: { enabled: true },
+  // ECharts' auto aria text would overwrite each chart's own aria-label with raw values
+  // (epoch timestamps); the container's role="img" + aria-label carries the description.
+  aria: { enabled: false },
 };
