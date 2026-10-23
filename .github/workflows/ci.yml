@@ -17,8 +17,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
       - name: Install
         run: uv sync --python 3.12 --frozen
       - name: Lint
@@ -31,14 +31,14 @@ jobs:
           diff <(grep -v '^#' /tmp/req.txt) <(grep -v '^#' ../requirements.txt)
 
   frontend:
-    name: Frontend (lint, tests, build)
+    name: Frontend (lint, types, tests, build)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -46,15 +46,45 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
+      - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  e2e:
+    name: End-to-end (Playwright, Chrome)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --project ../backend --python 3.12 --frozen
+      - run: npm ci
+      - run: npm run build
+      - name: Playwright (system Google Chrome)
+        run: npx playwright test
+        env:
+          CI: "true"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results
+          path: frontend/test-results
+          retention-days: 7
 
   docker:
     name: Docker image (build + smoke test)
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t winddesk:ci .
       - name: Smoke test
         run: |
@@ -62,4 +92,5 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://localhost:8000/api/v1/health && break; sleep 1; done
           curl -fsS "http://localhost:8000/api/v1/decisions/2026-01-15?gate=09:50" | grep -q '"delivery_date":"2026-01-16"'
           curl -fsS http://localhost:8000/brief | grep -q WindDesk
+          curl -fsSI http://localhost:8000/brief | grep -qi '^content-security-policy:'
           docker logs winddesk | tail -5
