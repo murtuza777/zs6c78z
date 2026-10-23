@@ -5,7 +5,7 @@ description = "WindDesk API: cutoff-aware wind forecast selection and accuracy a
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115,<1.0",
-    "uvicorn[standard]>=0.32",
+    "uvicorn>=0.32",
     "pandas>=2.2,<3.0",
     "numpy>=2.1,<2.5",
     "pydantic>=2.9,<3.0",

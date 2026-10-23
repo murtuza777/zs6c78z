@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.data.snapshot import SnapshotError
+from app.domain.market import NonexistentLocalTimeError
 from app.services import RequestError
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,18 @@ def register_error_handlers(app: FastAPI) -> None:
             422,
             "Request outside supported scope",
             exc.detail,
+            request,
+            errors,
+            "/problems/out-of-scope",
+        )
+
+    @app.exception_handler(NonexistentLocalTimeError)
+    async def _local_time(request: Request, exc: NonexistentLocalTimeError) -> JSONResponse:
+        errors = [{"loc": ["query", "gate"], "msg": str(exc)}]
+        return problem(
+            422,
+            "Gate time does not exist on this date",
+            str(exc),
             request,
             errors,
             "/problems/out-of-scope",

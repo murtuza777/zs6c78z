@@ -2,6 +2,8 @@
 
 import pytest
 
+from app.api import deps
+from app.config import get_settings
 from app.schemas.accuracy import AccuracyResponse, HorizonResponse
 from app.schemas.decisions import DecisionResponse
 from app.schemas.meta import MetaResponse
@@ -221,3 +223,40 @@ def test_caches_stay_bounded_under_many_custom_gates(client):
         )
     service = get_service()
     assert len(service._aligned) <= 16 and len(service._coverage) <= 64
+
+
+def test_unexpected_errors_return_generic_problem_with_request_id(synthetic_snapshot, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    monkeypatch.setenv("WINDDESK_SNAPSHOT_DIR", str(synthetic_snapshot))
+    get_settings.cache_clear()
+    deps.reset_service()
+    with TestClient(create_app(), raise_server_exceptions=False) as test_client:
+        service = deps.get_service()
+        monkeypatch.setattr(service, "meta", lambda: 1 / 0)
+        response = test_client.get("/api/v1/meta", headers={"X-Request-ID": "trace-123"})
+    deps.reset_service()
+    get_settings.cache_clear()
+    assert response.status_code == 500
+    assert response.headers["content-type"] == PROBLEM
+    assert response.headers["x-request-id"] == "trace-123"
+    assert "trace-123" in response.json()["detail"]
+    assert "division" not in response.text and "Traceback" not in response.text
+
+
+def test_security_headers_and_csp(client):
+    api = client.get("/api/v1/health")
+    assert api.headers["x-content-type-options"] == "nosniff"
+    assert api.headers["x-frame-options"] == "DENY"
+    assert api.headers["content-security-policy"].startswith("default-src 'none'")
+    docs = client.get("/api/docs")
+    assert "content-security-policy" not in docs.headers  # Swagger UI loads from a CDN
+
+
+def test_untrusted_request_ids_are_replaced(client):
+    bad = client.get("/api/v1/health", headers={"X-Request-ID": "x" * 200})
+    assert bad.headers["x-request-id"] != "x" * 200 and len(bad.headers["x-request-id"]) == 16
+    good = client.get("/api/v1/health", headers={"X-Request-ID": "abc-123"})
+    assert good.headers["x-request-id"] == "abc-123"

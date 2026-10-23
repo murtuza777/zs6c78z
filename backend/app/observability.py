@@ -4,11 +4,13 @@ import contextvars
 import hashlib
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
@@ -46,22 +48,63 @@ def configure_logging(level: str, as_json: bool) -> None:
     logging.getLogger("uvicorn.access").disabled = True  # replaced by our access log
 
 
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+# The SPA loads only same-origin scripts; ECharts tooltips need inline style attributes and
+# the UI font comes from Google Fonts. Swagger UI (/api/docs) uses a CDN, so it is excluded.
+APP_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' "
+    "https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
+    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+    "form-action 'self'"
+)
+API_CSP = "default-src 'none'; frame-ancestors 'none'"
+
+
+def _internal_error(request_id: str, path: str) -> Response:
+    """Generic 500: never leaks exception text, stack traces or configuration to clients."""
+    body = {
+        "type": "about:blank",
+        "title": "Internal server error",
+        "status": 500,
+        "detail": f"Unexpected error. Quote request ID {request_id} when reporting it.",
+        "instance": path,
+    }
+    return JSONResponse(body, status_code=500, media_type="application/problem+json")
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
-    """Assigns a request ID, logs one structured access line, and adds timing headers."""
+    """Request ID, structured access log, timing and security headers; last-resort 500s."""
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+        supplied = request.headers.get("x-request-id", "")
+        request_id = supplied if _REQUEST_ID_RE.match(supplied) else uuid.uuid4().hex[:16]
         token = request_id_var.set(request_id)
         started = time.perf_counter()
         try:
             response = await call_next(request)
+        except Exception:
+            logger.exception("unhandled error", extra={"extra_fields": {"path": request.url.path}})
+            response = _internal_error(request_id, request.url.path)
         finally:
             duration_ms = (time.perf_counter() - started) * 1000
             request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
         response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        path = request.url.path
+        if not path.startswith(("/api/docs", "/api/openapi.json")):
+            csp = API_CSP if path.startswith("/api/") else APP_CSP
+            response.headers.setdefault("Content-Security-Policy", csp)
         logger.info(
             "request",
             extra={
