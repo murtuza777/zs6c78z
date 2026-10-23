@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react';
 import { useHorizon, useMeta } from '../api/hooks';
 import type { MetaResponse } from '../api/types';
 import { EChart } from '../components/charts/EChart';
-import { buildHorizonOption } from '../components/charts/horizonChart';
+import { buildHorizonOption } from '../components/charts/timelineChart';
 import { DateRangeFields } from '../components/controls/DateControls';
 import { Card, ErrorState, PageSkeleton, StatTile } from '../components/ui/primitives';
 import { useDebouncedCommit } from '../hooks/useDebouncedCommit';

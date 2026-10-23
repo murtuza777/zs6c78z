@@ -236,6 +236,12 @@ export const accuracy: AccuracyResponse = {
     { start_time: hour(2), forecast_mw: 10, actual_mw: 5 },
     { start_time: hour(3), forecast_mw: 5, actual_mw: 10 },
   ],
+  timeline: rows.map((r, i) => ({
+    start_time: r.start_time,
+    forecast_mw: i === 3 ? null : r.forecast_mw,
+    actual_mw: r.actual_mw,
+    publish_time: i === 3 ? null : r.publish_time,
+  })),
   worst_days: [
     {
       decision_date: '2026-01-27',

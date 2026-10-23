@@ -167,6 +167,13 @@ export interface ScatterPoint {
   actual_mw: number;
 }
 
+export interface TimelinePoint {
+  start_time: Iso;
+  forecast_mw: number | null;
+  actual_mw: number | null;
+  publish_time: Iso | null;
+}
+
 export interface BandCoverage {
   available: boolean;
   n_evaluated: number;
@@ -189,6 +196,7 @@ export interface AccuracyResponse {
   histogram: HistogramBin[];
   histogram_bin_width_mw: number;
   scatter: ScatterPoint[];
+  timeline: TimelinePoint[];
   worst_days: DailyAccuracy[];
   band_coverage: BandCoverage;
   snapshot: SnapshotInfo;
