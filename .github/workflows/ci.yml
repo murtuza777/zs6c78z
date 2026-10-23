@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv sync --python 3.12 --frozen
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Tests
+        run: uv run pytest
+      - name: requirements.txt matches uv.lock
+        run: |
+          uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o /tmp/req.txt
+          diff <(grep -v '^#' /tmp/req.txt) <(grep -v '^#' ../requirements.txt)
+
+  frontend:
+    name: Frontend (lint, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+
+  docker:
+    name: Docker image (build + smoke test)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t winddesk:ci .
+      - name: Smoke test
+        run: |
+          docker run -d -p 8000:8000 --name winddesk winddesk:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:8000/api/v1/health && break; sleep 1; done
+          curl -fsS "http://localhost:8000/api/v1/decisions/2026-01-15?gate=09:50" | grep -q '"delivery_date":"2026-01-16"'
+          curl -fsS http://localhost:8000/brief | grep -q WindDesk
+          docker logs winddesk | tail -5

@@ -1,0 +1,25 @@
+services:
+  # Production-like single container: API + built UI on http://localhost:8000
+  app:
+    build: .
+    image: winddesk:local
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+
+  # Regenerate the January 2026 snapshot from the live Elexon API:
+  #   docker compose run --rm ingest
+  ingest:
+    profiles: ["tools"]
+    build: .
+    image: winddesk:local
+    user: root
+    command: ["python", "backend/scripts/ingest.py", "--out", "/snapshot"]
+    volumes:
+      - ./backend/data/snapshot:/snapshot
+    env_file:
+      - path: .env
+        required: false
