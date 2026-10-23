@@ -85,7 +85,11 @@ synthetic frames (`tests/factories.py`).
 * JSON logs with `request_id`, method, path, status and `duration_ms`. `X-Request-ID` is echoed
   and included in 500 problem bodies. `Server-Timing` header.
 * `/api/v1/health` reports the snapshot version and row counts (`Cache-Control: no-store`).
-* Weak ETags are keyed by snapshot version and URL, so a new snapshot invalidates every cache.
+* Weak ETags are keyed by snapshot version, a fingerprint of the backend code and the URL, so a
+  new snapshot *or* a new deploy invalidates every cache. Browsers revalidate each request
+  (`max-age=0, must-revalidate`); the CDN caches for a day. (Keying on the snapshot alone let a
+  browser keep a pre-deploy `/accuracy` body without the new `timeline` field, which crashed
+  the page; covered by regression tests.)
 
 ## 6. Performance (measured locally)
 

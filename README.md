@@ -163,8 +163,13 @@ Every statistic uses **matched hours only**: a selected forecast and a complete 
 ## API
 
 Base path `/api/v1`. Timestamps are ISO-8601 UTC (`Z`), power in MW, energy in MWh. Errors use
-`application/problem+json` (RFC 9457). Historical responses carry an `ETag` and long
-`Cache-Control`. OpenAPI: `/api/docs`, `/api/openapi.json`.
+`application/problem+json` (RFC 9457).
+
+* **Caching:** historical responses carry an `ETag` built from the data snapshot **and** a
+  fingerprint of the backend code (`/health` reports it as `build`). Browsers revalidate on
+  every request (`max-age=0, must-revalidate`, a cheap 304 when nothing changed), so a deploy
+  is picked up immediately; the CDN keeps a copy for a day.
+* **OpenAPI:** `/api/docs`, `/api/openapi.json`.
 
 | Endpoint | Description |
 |---|---|

@@ -16,8 +16,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
 logger = logging.getLogger("winddesk.http")
 
-# Historical results never change for a given snapshot version.
-CACHE_CONTROL = "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800"
+# Browsers must revalidate every time (a cheap 304 when nothing changed), so a deploy is picked
+# up immediately; the CDN may keep a copy for a day (Vercel's edge cache is per deployment).
+CACHE_CONTROL = "public, max-age=0, must-revalidate, s-maxage=86400"
 
 
 class JsonFormatter(logging.Formatter):

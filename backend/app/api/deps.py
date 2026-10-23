@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.data.snapshot import load_snapshot
 from app.domain.market import DEFAULT_GATE, format_gate, parse_gate
 from app.services import AnalyticsService, RequestError
+from app.version import CODE_FINGERPRINT
 
 logger = logging.getLogger(__name__)
 _lock = threading.Lock()
@@ -45,7 +46,8 @@ def get_service() -> AnalyticsService:
 
 
 def current_version() -> str | None:
-    return _service.snapshot.version if _service else None
+    """Cache-validator identity: data snapshot + code build (either changing busts ETags)."""
+    return f"{_service.snapshot.version}.{CODE_FINGERPRINT}" if _service else None
 
 
 def reset_service() -> None:

@@ -49,6 +49,7 @@ from app.domain.uncertainty import (
     horizon_bucket,
     quantile_table,
 )
+from app.version import CODE_FINGERPRINT
 
 HORIZON_H_MAX = 48.0
 HISTOGRAM_BIN_MW = 250.0
@@ -556,6 +557,7 @@ class AnalyticsService:
         return {
             "status": "ok",
             "snapshot_version": self.snapshot.version,
+            "build": CODE_FINGERPRINT,
             "actual_rows": len(self.actuals),
             "forecast_rows": len(self.forecasts),
         }

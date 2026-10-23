@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import SnapshotInfo
 
@@ -58,5 +58,6 @@ class MetaResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     snapshot_version: str
+    build: str = Field(description="Fingerprint of the backend code serving this response")
     actual_rows: int
     forecast_rows: int

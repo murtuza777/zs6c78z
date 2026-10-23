@@ -266,3 +266,29 @@ def test_untrusted_request_ids_are_replaced(client):
     assert bad.headers["x-request-id"] != "x" * 200 and len(bad.headers["x-request-id"]) == 16
     good = client.get("/api/v1/health", headers={"X-Request-ID": "abc-123"})
     assert good.headers["x-request-id"] == "abc-123"
+
+
+def test_etag_changes_with_the_code_build_not_only_the_snapshot(client):
+    """Regression: a deploy that changed the response shape kept the same ETag, so browsers
+    revalidated a pre-deploy body (without the new `timeline` field) as 304 and crashed."""
+    from app.version import CODE_FINGERPRINT
+
+    first = client.get("/api/v1/accuracy")
+    etag = first.headers["etag"]
+    assert CODE_FINGERPRINT in etag
+    assert first.headers["cache-control"].startswith("public, max-age=0, must-revalidate")
+    assert client.get("/api/v1/accuracy", headers={"If-None-Match": etag}).status_code == 304
+    stale = etag.replace(CODE_FINGERPRINT, "0000000000")  # what a pre-deploy copy carries
+    assert client.get("/api/v1/accuracy", headers={"If-None-Match": stale}).status_code == 200
+    assert client.get("/api/v1/health").json()["build"] == CODE_FINGERPRINT
+
+
+def test_code_fingerprint_tracks_content_and_ignores_line_endings(tmp_path):
+    from app.version import code_fingerprint
+
+    (tmp_path / "a.py").write_bytes(b"x = 1\n")
+    base = code_fingerprint(tmp_path)
+    (tmp_path / "a.py").write_bytes(b"x = 1\r\n")
+    assert code_fingerprint(tmp_path) == base
+    (tmp_path / "a.py").write_bytes(b"x = 2\n")
+    assert code_fingerprint(tmp_path) != base
