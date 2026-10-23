@@ -1,0 +1,53 @@
+import { describe, expect, it } from 'vitest';
+
+import { accuracy, decision } from '../../test/fixtures';
+import { binTone, histogramOption, vintageOption } from './accuracyCharts';
+import { bandSegments, buildDecisionOption, SERIES } from './decisionChart';
+
+type Series = { name?: string; type?: string; data?: unknown[] };
+const seriesOf = (option: unknown) => (option as { series: Series[] }).series;
+const names = (option: unknown) => seriesOf(option).map((s) => s.name);
+
+describe('decision chart', () => {
+  it('shows only decision-time information until actuals are revealed', () => {
+    const hidden = buildDecisionOption(decision, { reveal: false, showRevisions: true });
+    expect(names(hidden)).toContain(SERIES.forecast);
+    expect(names(hidden)).toContain(SERIES.earlier);
+    expect(names(hidden)).not.toContain(SERIES.actual);
+    expect(names(hidden)).not.toContain(SERIES.later); // post-gate runs are hindsight too
+
+    const revealed = buildDecisionOption(decision, { reveal: true, showRevisions: true });
+    expect(names(revealed)).toContain(SERIES.actual);
+    expect(names(revealed)).toContain(SERIES.later);
+  });
+
+  it('never draws the selected run twice and can hide revisions', () => {
+    const option = buildDecisionOption(decision, { reveal: true, showRevisions: false });
+    expect(names(option)).not.toContain(SERIES.earlier);
+    expect(names(option).filter((n) => n === SERIES.forecast)).toHaveLength(1);
+  });
+
+  it('splits the uncertainty band at hours without a band', () => {
+    const segments = bandSegments(decision.rows);
+    expect(segments).toHaveLength(2); // hour 05 has no band
+    expect(segments[0]).toHaveLength(5);
+    expect(segments[1]).toHaveLength(18);
+  });
+});
+
+describe('accuracy charts', () => {
+  it('colours histogram bins by error sign', () => {
+    expect(binTone({ lower_mw: -250, upper_mw: 0, count: 1 })).toBe('under');
+    expect(binTone({ lower_mw: 0, upper_mw: 250, count: 1 })).toBe('over');
+    expect(binTone({ lower_mw: -100, upper_mw: 150, count: 1 })).toBe('neutral');
+    const data = seriesOf(histogramOption(accuracy.histogram))[0]!.data as { value: number }[];
+    expect(data.map((d) => d.value)).toEqual([3, 5]);
+  });
+
+  it('distinguishes vintages available at the gate', () => {
+    const data = seriesOf(vintageOption(accuracy.by_vintage))[0]!.data as {
+      itemStyle: { color: string };
+    }[];
+    expect(new Set(data.map((d) => d.itemStyle.color)).size).toBe(2);
+  });
+});
