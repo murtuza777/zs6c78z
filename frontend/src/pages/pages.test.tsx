@@ -164,3 +164,17 @@ describe('procurement what-if', () => {
     expect(screen.getByText(/forecast plan short by 28.8 GWh/)).toBeInTheDocument();
   });
 });
+
+describe('compatibility with older API responses', () => {
+  it('renders the Accuracy page when a cached response has no timeline', async () => {
+    // Regression: a browser-cached pre-deploy response lacked `timeline` and crashed the page.
+    const older = { ...accuracy };
+    delete older.timeline;
+    vi.mocked(api.accuracy).mockResolvedValue(older);
+    renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
+    expect(await screen.findByText(/Key findings/)).toBeInTheDocument();
+    expect(
+      screen.queryByText('Forecast at the gate vs actual, every hour'),
+    ).not.toBeInTheDocument();
+  });
+});

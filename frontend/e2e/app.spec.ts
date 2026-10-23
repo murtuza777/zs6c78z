@@ -213,3 +213,19 @@ test.describe('responsive layout @mobile', () => {
     });
   }
 });
+
+test('Accuracy still renders if the API response predates the timeline', async ({ page }) => {
+  // Regression: a browser-cached pre-deploy /accuracy body without `timeline` crashed the page.
+  await page.route('**/api/v1/accuracy**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    delete body.timeline;
+    await route.fulfill({ response, json: body });
+  });
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/accuracy?gate=09:50');
+  await expect(page.getByText(/above actual output in 84% of hours/)).toBeVisible();
+  await expect(page.getByText('Forecast at the gate vs actual, every hour')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -196,7 +196,8 @@ export interface AccuracyResponse {
   histogram: HistogramBin[];
   histogram_bin_width_mw: number;
   scatter: ScatterPoint[];
-  timeline: TimelinePoint[];
+  /** Optional: absent in responses from older API builds (e.g. a browser-cached copy). */
+  timeline?: TimelinePoint[];
   worst_days: DailyAccuracy[];
   band_coverage: BandCoverage;
   snapshot: SnapshotInfo;

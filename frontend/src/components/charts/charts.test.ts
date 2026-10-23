@@ -75,14 +75,15 @@ describe('non-colour encodings', () => {
 describe('January timeline', () => {
   it('plots every hour and keeps missing forecasts as gaps', async () => {
     const { buildTimelineOption, ACTUAL_SERIES } = await import('./timelineChart');
-    const option = buildTimelineOption(accuracy.timeline, { forecastName: 'Forecast at gate' });
+    const timeline = accuracy.timeline!;
+    const option = buildTimelineOption(timeline, { forecastName: 'Forecast at gate' });
     const [forecast, actual] = seriesOf(option) as {
       name: string;
       data: [number, number | null][];
     }[];
     expect(forecast!.name).toBe('Forecast at gate');
     expect(actual!.name).toBe(ACTUAL_SERIES);
-    expect(forecast!.data).toHaveLength(accuracy.timeline.length);
+    expect(forecast!.data).toHaveLength(timeline.length);
     expect(forecast!.data[3]![1]).toBeNull(); // fixture hour 03 has no forecast
     expect(actual!.data[3]![1]).not.toBeNull();
   });

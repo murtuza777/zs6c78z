@@ -99,7 +99,10 @@ function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) 
       hour: hourOption(data.by_hour),
       horizon: horizonBucketOption(data.by_horizon),
       vintage: vintageOption(data.by_vintage),
-      timeline: buildTimelineOption(data.timeline, { forecastName: 'Forecast at gate' }),
+      // Absent in responses from API builds before the timeline existed: hide, don't crash.
+      timeline: data.timeline?.length
+        ? buildTimelineOption(data.timeline, { forecastName: 'Forecast at gate' })
+        : null,
     }),
     [data],
   );
@@ -227,16 +230,18 @@ function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) 
         />
       </div>
 
-      <Card
-        title="Forecast at the gate vs actual, every hour"
-        subtitle={`For each delivery hour: the forecast that was available at ${data.gate.gate} UK on the decision day, and what was generated. Drag the slider or scroll to zoom; gaps are hours without a forecast or a complete actual.`}
-      >
-        <EChart
-          option={options.timeline}
-          height={360}
-          ariaLabel={`Hourly forecast available at ${data.gate.gate} and actual wind generation, ${data.timeline.length} hours`}
-        />
-      </Card>
+      {options.timeline && (
+        <Card
+          title="Forecast at the gate vs actual, every hour"
+          subtitle={`For each delivery hour: the forecast that was available at ${data.gate.gate} UK on the decision day, and what was generated. Drag the slider or scroll to zoom; gaps are hours without a forecast or a complete actual.`}
+        >
+          <EChart
+            option={options.timeline}
+            height={360}
+            ariaLabel={`Hourly forecast available at ${data.gate.gate} and actual wind generation, ${data.timeline?.length ?? 0} hours`}
+          />
+        </Card>
+      )}
 
       <Card
         title="Daily MAE and bias by delivery day"
