@@ -98,7 +98,23 @@ automated tests, or both.
 | `docker compose up --build` (clean) | healthy, non-root (uid 10001), all endpoints correct, CSP present, traversal probes return 404 or the SPA, never files |
 | Production https://zs6c78z.vercel.app (anonymous) | UI routes 200; API 200/422/404 as expected; snapshot `jan2026-113afcef1a`; security headers; ETag and 304 |
 
-## 4. Remaining known issues
+## 4. Follow-up changes (2026-10-24, after an evaluator-style review)
+
+* **Landing page:** the Brief now opens on the **latest decision date** (31 Jan, 29 completed
+  days of history) instead of 1 Jan, which had none.
+* **Accuracy timeline:** a new hourly timeline shows the forecast available at the gate against
+  actual for the whole range. `/accuracy` gained `timeline` (every expected hour; gaps stay
+  null).
+* **Procurement what-if:** on the Brief, the user enters demand (MW) and a wind share. It shows
+  the volume to buy if wind matches the forecast and in a low-wind (P10) case, the extra cover
+  for uncertainty, and, in hindsight, each plan's shortfall. It reconciles with the day's energy
+  error (28 Jan: forecast plan short by 129.0 GWh, equal to the +129.0 GWh error).
+* **Bug found by the new e2e test:** ECharts' built-in aria text overwrote every chart's
+  accessible name with raw values (epoch timestamps). ECharts' auto-description is now off, so
+  each chart's own `aria-label` is used.
+* **Results:** 150 backend tests, 48 frontend unit tests and 19 end-to-end tests pass.
+
+## 5. Remaining known issues
 
 * **Dev-only advisories:** esbuild under the Vite 5 dev server, Vitest 2 and tinypool, and
   Tailwind 3's postcss-selector-parser. None ship to production; fixing them needs major

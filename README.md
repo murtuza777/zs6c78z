@@ -53,8 +53,8 @@ All figures are computed by the app and the notebook from the validated snapshot
 
 | Screen | Purpose |
 |---|---|
-| **Day-Ahead Brief** (`/brief`) | Pick a decision date and a gate-closure scenario. A headline sentence states what the forecast available at that cutoff expected. Tiles show energy with a daily P10–P90 range, peak and minimum, and the **typical error known at the gate** (from January days already completed). The view also has an hourly P10–P90 band, the forecast revision history, coverage pills, and partial-day and stale-feed warnings. **Reveal actuals** adds the hindsight view: actual line, day metrics, error columns. Hourly table with CSV export (UK and UTC timestamps, same rows as the table). Every tile explains its metric. |
-| **Forecast Accuracy** (`/accuracy`) | January headline metrics; daily MAE/bias (click a bar to open that day's brief); error histogram; forecast-vs-actual scatter; error by hour of day and by lead time; comparison of all D−1 runs (available vs after gate); worst five days; band coverage check; data coverage. |
+| **Day-Ahead Brief** (`/brief`) | Opens on the latest decision (31 Jan). Pick a decision date and a gate-closure scenario. A headline sentence states what the forecast available at that cutoff expected. Tiles show energy with a daily P10–P90 range, peak and minimum, and the **typical error known at the gate** (from January days already completed). The view also has an hourly P10–P90 band, the forecast revision history, coverage pills, and partial-day and stale-feed warnings. **Reveal actuals** adds the hindsight view: actual line, day metrics, error columns. Hourly table with CSV export (UK and UTC timestamps, same rows as the table). **Procurement what-if:** enter your demand (flat MW) and the share of national wind you can count on. WindDesk shows how much to buy beyond wind if it arrives as forecast and in a low-wind (P10) case, and, in hindsight, how short each plan would have been. These columns also appear in the table and the CSV. Every tile explains its metric. |
+| **Forecast Accuracy** (`/accuracy`) | January headline metrics; an hourly **timeline of the forecast available at the gate vs actual** for the whole range (zoomable); daily MAE/bias (click a bar to open that day's brief); error histogram; forecast-vs-actual scatter; error by hour of day and by lead time; comparison of all D−1 runs (available vs after gate); worst five days; band coverage check; data coverage. |
 | **Horizon Explorer** (`/horizon`) | Pick a date range and a minimum lead time H. Each target hour uses the latest forecast published at least H hours earlier. |
 | **Methodology** (`/methodology`) | Sources, time-zone handling, forecast selection, alignment, metric definitions, gate-closure sources and limitations, written for a trader. |
 
@@ -276,17 +276,21 @@ cd frontend && npm run test:e2e
   * Bounded, single-flight caches (eight concurrent requests compute once).
   * API contracts, problem+json errors (including generic 500s with a request ID), security
     headers, ETag/304.
-* **Frontend, 38 Vitest + Testing Library tests.**
+* **Frontend, 48 Vitest + Testing Library tests.**
   * Formatting (UK time across BST), URL-param validation.
   * CSV contents match the API rows; escaping and formula-injection guard.
   * Chart builders: actuals never drawn before *Reveal*; non-colour encodings.
   * Debounced slider commit; findings wording for positive and negative bias; partial-day and
     known-at-gate tiles; accessible metric hints.
-* **End-to-end, 15 Playwright tests** (desktop and mobile):
+  * Procurement what-if, hand-computed: clipping at zero, wind share, partial days, hindsight
+    shortfall; plan columns in the CSV; timeline gaps kept as gaps.
+* **End-to-end, 19 Playwright tests** (desktop and mobile):
   * Deep links, gate presets, date stepping, reveal by keyboard.
   * Downloaded CSV contents, partial days, invalid params.
   * API error plus retry, worst-day navigation and back, reload of deep links.
   * Slider commit, 404, no horizontal overflow on phones.
+  * Landing on the latest decision; typing a demand (kept across reloads); plan columns in the
+    downloaded CSV; the Accuracy timeline's accessible name.
 * **CI** (`.github/workflows/ci.yml`):
   * Backend lint, tests and lockfile/requirements sync.
   * Frontend lint, format, types, tests and build.

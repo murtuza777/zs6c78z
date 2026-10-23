@@ -25,12 +25,19 @@ from the live app or the notebook, so say only what is on screen.
 * Point to the **stale-feed warning**: values unchanged since 26 Jan 18:30, five repeated runs.
   "The feed had not updated for 15 hours. WindDesk flags it."
 
-**1:50–2:40. Reveal actuals.** *Toggle Reveal actuals.*
-> "Actual wind was 138 GWh, about half the forecast. The forecast missed by 129 GWh. The violet
-> lines are runs published after the gate: the 11:30 run already cut 57 GWh. This was
-> January's worst day." Show the revision table and the CSV export.
+**1:50–2:50. What to buy, then what happened.** In the what-if, type 30,000 MW (or click
+*Try 30,000 MW*).
+> "If wind arrives as forecast you buy 452.8 GWh. To be covered on a low-wind day you buy
+> 542.0 GWh: 89.2 GWh of extra cover, which is what the uncertainty costs you."
 
-**2:40–4:15. Forecast Accuracy.** *Open the Accuracy tab.*
+*Toggle Reveal actuals.*
+> "Actual wind was 138 GWh, about half the forecast. The forecast plan was 129 GWh short, and
+> even the cautious plan was 39.8 GWh short. The violet lines are runs published after the gate:
+> the 11:30 run already cut 57 GWh. This was January's worst day." Show the CSV export.
+
+**2:50–4:15. Forecast Accuracy.** *Open the Accuracy tab.*
+* Timeline: the forecast available at the gate vs actual for every January hour. "The cyan line
+  sits above the amber one almost all month." 
 * Key findings: forecast **above actual in 84% of hours**, bias **+1,730 MW**, MAE 2,013 MW,
   1,287 GWh over-forecast across the month.
 * "So the error is mostly systematic. Planning on the raw forecast overstated wind supply and
