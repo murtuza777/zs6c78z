@@ -2,7 +2,10 @@ import { useState } from 'react';
 
 import type { GatePreset } from '../../api/types';
 import { isValidGate } from '../../lib/params';
-import { cx } from '../../lib/cx';
+
+const CUSTOM = 'custom';
+const control =
+  'rounded-md bg-raised px-2 py-1.5 text-sm text-ink ring-1 ring-inset ring-edge [color-scheme:dark] focus:outline-none focus:ring-accent/70';
 
 interface Props {
   presets: GatePreset[];
@@ -10,65 +13,47 @@ interface Props {
   onChange: (gate: string) => void;
 }
 
-/** Market gate-closure scenario: documented presets or a custom UK-local time. */
+/** Gate-closure time (UK): an exchange preset or a custom HH:MM. */
 export function GateSelector({ presets, value, onChange }: Props) {
   const isPreset = presets.some((p) => p.gate === value);
-  const [customOpen, setCustomOpen] = useState(!isPreset);
-  const showCustom = customOpen || !isPreset;
+  const [custom, setCustom] = useState(!isPreset);
+  const showCustom = custom || !isPreset;
 
   return (
-    <fieldset className="min-w-0">
-      <legend className="mb-1.5 text-xs text-ink-muted">Gate closure scenario (UK time)</legend>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {presets.map((preset) => {
-          const active = preset.gate === value && !customOpen;
-          return (
-            <button
-              key={preset.id}
-              type="button"
-              aria-pressed={active}
-              title={`${preset.description} Source: ${preset.source} (verified ${preset.verified_on}).`}
-              onClick={() => {
-                setCustomOpen(false);
-                onChange(preset.gate);
-              }}
-              className={cx(
-                'rounded-md px-2.5 py-1.5 text-xs ring-1 ring-inset transition-colors',
-                active
-                  ? 'bg-accent-soft text-ink ring-accent/60'
-                  : 'bg-raised text-ink-secondary ring-edge hover:text-ink',
-              )}
-            >
-              <span className="font-semibold tabular-nums">{preset.gate}</span>{' '}
-              <span className="hidden sm:inline">{preset.label}</span>
-              <span className="sm:hidden">{preset.id.toUpperCase()}</span>
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          aria-pressed={showCustom}
-          onClick={() => setCustomOpen(true)}
-          className={cx(
-            'rounded-md px-2.5 py-1.5 text-xs ring-1 ring-inset',
-            showCustom
-              ? 'bg-accent-soft text-ink ring-accent/60'
-              : 'bg-raised text-ink-secondary ring-edge hover:text-ink',
-          )}
-        >
-          Custom
-        </button>
-        {showCustom && (
-          <input
-            type="time"
-            step={60}
-            aria-label="Custom gate closure time, UK local"
-            value={value}
-            onChange={(e) => isValidGate(e.target.value) && onChange(e.target.value)}
-            className="rounded-md bg-raised px-2 py-1 text-xs text-ink ring-1 ring-inset ring-edge [color-scheme:dark]"
-          />
-        )}
-      </div>
-    </fieldset>
+    <div className="flex items-center gap-2">
+      <label htmlFor="gate" className="whitespace-nowrap text-xs text-ink-muted">
+        Gate closure
+      </label>
+      <select
+        id="gate"
+        className={control}
+        value={showCustom ? CUSTOM : value}
+        onChange={(e) => {
+          if (e.target.value === CUSTOM) {
+            setCustom(true);
+          } else {
+            setCustom(false);
+            onChange(e.target.value);
+          }
+        }}
+      >
+        {presets.map((p) => (
+          <option key={p.id} value={p.gate}>
+            {p.gate} · {p.label}
+          </option>
+        ))}
+        <option value={CUSTOM}>Custom time…</option>
+      </select>
+      {showCustom && (
+        <input
+          type="time"
+          step={60}
+          aria-label="Custom gate closure time, UK"
+          value={value}
+          onChange={(e) => isValidGate(e.target.value) && onChange(e.target.value)}
+          className={control}
+        />
+      )}
+    </div>
   );
 }

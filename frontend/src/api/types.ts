@@ -167,6 +167,15 @@ export interface ScatterPoint {
   actual_mw: number;
 }
 
+export interface ForecastAgePoint {
+  /** Every delivery hour uses the latest forecast at least this many hours old. */
+  age_h: number;
+  mae_mw: number | null;
+  bias_mw: number | null;
+  n_matched: number;
+  n_expected: number;
+}
+
 export interface TimelinePoint {
   start_time: Iso;
   forecast_mw: number | null;
@@ -196,31 +205,11 @@ export interface AccuracyResponse {
   histogram: HistogramBin[];
   histogram_bin_width_mw: number;
   scatter: ScatterPoint[];
-  /** Optional: absent in responses from older API builds (e.g. a browser-cached copy). */
+  // Optional: absent in responses from older API builds (e.g. a browser-cached copy).
+  by_forecast_age?: ForecastAgePoint[];
   timeline?: TimelinePoint[];
   worst_days: DailyAccuracy[];
   band_coverage: BandCoverage;
-  snapshot: SnapshotInfo;
-}
-
-export interface HorizonRow {
-  start_time: Iso;
-  forecast_mw: number | null;
-  publish_time: Iso | null;
-  horizon_h: number | null;
-  actual_mw: number | null;
-  actual_status: ActualStatus;
-  error_mw: number | null;
-}
-
-export interface HorizonResponse {
-  from_date: string;
-  to_date: string;
-  horizon_h: number;
-  rule: string;
-  metrics: Metrics;
-  rows: HorizonRow[];
-  actuals_half_hourly: HalfHourActual[];
   snapshot: SnapshotInfo;
 }
 

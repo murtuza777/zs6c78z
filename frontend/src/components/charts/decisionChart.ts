@@ -15,16 +15,11 @@ import {
 
 const HOUR_MS = 3_600_000;
 
-export interface DecisionChartOptions {
-  reveal: boolean;
-  showRevisions: boolean;
-}
-
 export const SERIES = {
   forecast: 'Forecast at gate',
   band: 'P10–P90 band',
   actual: 'Actual (hourly mean)',
-  earlier: 'Earlier runs (pre-gate)',
+  earlier: 'Earlier runs',
   later: 'Runs after gate',
 } as const;
 
@@ -111,9 +106,13 @@ function bandSeries(rows: DecisionRow[]): Record<string, unknown> {
   };
 }
 
+/**
+ * The delivery day as known at the gate: selected forecast, its P10–P90 band and, in hindsight
+ * mode, the actual. Other runs are drawn too but start hidden; the legend toggles them.
+ */
 export function buildDecisionOption(
   decision: DecisionResponse,
-  { reveal, showRevisions }: DecisionChartOptions,
+  { reveal }: { reveal: boolean },
 ): ChartOption {
   const start = ms(decision.delivery_start_utc);
   const end = ms(decision.delivery_end_utc);
@@ -122,28 +121,26 @@ export function buildDecisionOption(
 
   const series: Record<string, unknown>[] = [];
 
-  if (showRevisions) {
-    for (const revision of decision.revisions) {
-      if (revision.is_selected) continue;
-      if (!revision.available_at_decision && !reveal) continue;
-      const earlier = revision.available_at_decision;
-      series.push({
-        name: earlier ? SERIES.earlier : SERIES.later,
-        type: 'line',
-        data: revision.points.map((p) => [ms(p.start_time), p.forecast_mw]),
-        showSymbol: false,
-        silent: true,
-        z: 1,
-        lineStyle: {
-          width: 1,
-          color: earlier ? C.earlier : C.later,
-          opacity: earlier ? 0.5 : 0.75,
-        },
-        itemStyle: { color: earlier ? C.earlier : C.later },
-        emphasis: { disabled: true },
-        tooltip: { show: false },
-      });
-    }
+  for (const revision of decision.revisions) {
+    if (revision.is_selected) continue;
+    if (!revision.available_at_decision && !reveal) continue;
+    const earlier = revision.available_at_decision;
+    series.push({
+      name: earlier ? SERIES.earlier : SERIES.later,
+      type: 'line',
+      data: revision.points.map((p) => [ms(p.start_time), p.forecast_mw]),
+      showSymbol: false,
+      silent: true,
+      z: 1,
+      lineStyle: {
+        width: 1,
+        color: earlier ? C.earlier : C.later,
+        opacity: earlier ? 0.5 : 0.75,
+      },
+      itemStyle: { color: earlier ? C.earlier : C.later },
+      emphasis: { disabled: true },
+      tooltip: { show: false },
+    });
   }
 
   if (decision.band.available) {
@@ -179,15 +176,19 @@ export function buildDecisionOption(
   const legend: string[] = [SERIES.forecast];
   if (decision.band.available) legend.push(SERIES.band);
   if (reveal) legend.push(SERIES.actual);
-  if (showRevisions) {
-    legend.push(SERIES.earlier);
-    if (reveal) legend.push(SERIES.later);
-  }
+  const hasEarlier = decision.revisions.some((r) => !r.is_selected && r.available_at_decision);
+  const hasLater = reveal && decision.revisions.some((r) => !r.available_at_decision);
+  if (hasEarlier) legend.push(SERIES.earlier);
+  if (hasLater) legend.push(SERIES.later);
 
   const option = {
     ...baseOption,
     grid: { left: 8, right: 16, top: 52, bottom: 8, containLabel: true },
-    legend: { ...legendCommon, data: legend },
+    legend: {
+      ...legendCommon,
+      data: legend,
+      selected: { [SERIES.earlier]: false, [SERIES.later]: false },
+    },
     tooltip: {
       ...baseTooltip,
       trigger: 'axis',

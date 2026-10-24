@@ -1,4 +1,3 @@
-import { fmtDay } from '../../lib/format';
 import { addDays, isIsoDate } from '../../lib/params';
 
 const inputClass =
@@ -18,50 +17,46 @@ export function DecisionDatePicker({
   onChange: (date: string) => void;
 }) {
   return (
-    <div className="min-w-0">
-      <label htmlFor="decision-date" className="mb-1.5 block text-xs text-ink-muted">
-        Decision date (D)
+    <div className="flex items-center gap-1.5">
+      <label htmlFor="decision-date" className="mr-0.5 text-xs text-ink-muted">
+        Decision day
       </label>
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          className={stepClass}
-          aria-label="Previous decision day"
-          disabled={value <= min}
-          onClick={() => onChange(addDays(value, -1))}
-        >
-          ‹
-        </button>
-        <input
-          id="decision-date"
-          type="date"
-          min={min}
-          max={max}
-          value={value}
-          onChange={(e) => {
-            const next = e.target.value;
-            if (isIsoDate(next) && next >= min && next <= max) onChange(next);
-          }}
-          className={inputClass}
-        />
-        <button
-          type="button"
-          className={stepClass}
-          aria-label="Next decision day"
-          disabled={value >= max}
-          onClick={() => onChange(addDays(value, 1))}
-        >
-          ›
-        </button>
-        <span className="ml-1 hidden text-xs text-ink-muted md:inline">{fmtDay(value)}</span>
-      </div>
+      <button
+        type="button"
+        className={stepClass}
+        aria-label="Previous decision day"
+        disabled={value <= min}
+        onClick={() => onChange(addDays(value, -1))}
+      >
+        ‹
+      </button>
+      <input
+        id="decision-date"
+        type="date"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (isIsoDate(next) && next >= min && next <= max) onChange(next);
+        }}
+        className={inputClass}
+      />
+      <button
+        type="button"
+        className={stepClass}
+        aria-label="Next decision day"
+        disabled={value >= max}
+        onClick={() => onChange(addDays(value, 1))}
+      >
+        ›
+      </button>
     </div>
   );
 }
 
 export function DateRangeFields({
   label,
-  resetLabel = 'All January',
   from,
   to,
   min,
@@ -69,7 +64,6 @@ export function DateRangeFields({
   onChange,
 }: {
   label: string;
-  resetLabel?: string;
   from: string;
   to: string;
   min: string;
@@ -77,34 +71,32 @@ export function DateRangeFields({
   onChange: (from: string, to: string) => void;
 }) {
   return (
-    <fieldset className="min-w-0">
-      <legend className="mb-1.5 text-xs text-ink-muted">{label}</legend>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <input
-          type="date"
-          aria-label={`${label}: from`}
-          min={min}
-          max={to}
-          value={from}
-          onChange={(e) => isIsoDate(e.target.value) && onChange(e.target.value, to)}
-          className={inputClass}
-        />
-        <span className="text-ink-muted">to</span>
-        <input
-          type="date"
-          aria-label={`${label}: to`}
-          min={from}
-          max={max}
-          value={to}
-          onChange={(e) => isIsoDate(e.target.value) && onChange(from, e.target.value)}
-          className={inputClass}
-        />
-        {(from !== min || to !== max) && (
-          <button type="button" className={stepClass} onClick={() => onChange(min, max)}>
-            {resetLabel}
-          </button>
-        )}
-      </div>
+    <fieldset className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <legend className="float-left mr-1.5 text-xs text-ink-muted">{label}</legend>
+      <input
+        type="date"
+        aria-label={`${label}: from`}
+        min={min}
+        max={to}
+        value={from}
+        onChange={(e) => isIsoDate(e.target.value) && onChange(e.target.value, to)}
+        className={inputClass}
+      />
+      <span className="text-ink-muted">to</span>
+      <input
+        type="date"
+        aria-label={`${label}: to`}
+        min={from}
+        max={max}
+        value={to}
+        onChange={(e) => isIsoDate(e.target.value) && onChange(from, e.target.value)}
+        className={inputClass}
+      />
+      {(from !== min || to !== max) && (
+        <button type="button" className={stepClass} onClick={() => onChange(min, max)}>
+          All January
+        </button>
+      )}
     </fieldset>
   );
 }

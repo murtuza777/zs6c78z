@@ -1,18 +1,5 @@
-import type {
-  DailyAccuracy,
-  GroupAccuracy,
-  HistogramBin,
-  ScatterPoint,
-  VintageAccuracy,
-} from '../../api/types';
-import {
-  fmtCompact,
-  fmtMW,
-  fmtNumber,
-  fmtShortDay,
-  fmtSignedMW,
-  fmtUkDateTime,
-} from '../../lib/format';
+import type { ForecastAgePoint, HistogramBin } from '../../api/types';
+import { fmtCompact, fmtHours, fmtMW, fmtNumber, fmtSignedMW } from '../../lib/format';
 import type { ChartOption } from './EChart';
 import {
   axisCommon,
@@ -25,88 +12,79 @@ import {
   tooltipTitle,
 } from './theme';
 
-const BAR = { barMaxWidth: 24, itemStyle: { borderRadius: [4, 4, 0, 0] } };
 const grid = { left: 8, right: 12, top: 52, bottom: 8, containLabel: true };
-const categoryAxis = (data: string[], extra: Record<string, unknown> = {}) => ({
-  type: 'category' as const,
-  data,
-  ...axisCommon,
-  splitLine: { show: false },
-  ...extra,
-});
 
-/** MAE bars with signed bias on the same MW axis (one scale, two measures of the same unit). */
-function maeBiasOption(labels: string[], groups: GroupAccuracy[], titleFor: (i: number) => string) {
+export const AGE_SERIES = { mae: 'MAE', bias: 'Bias' } as const;
+
+/**
+ * Error vs forecast age: MAE and bias when every delivery hour uses the latest forecast at least
+ * H hours old. The span of lead times the gate actually uses is shaded and labelled.
+ */
+export function forecastAgeOption(
+  points: ForecastAgePoint[],
+  gateLeads: [number, number] | null,
+): ChartOption {
+  const byAge = new Map(points.map((p) => [p.age_h, p]));
   return {
     ...baseOption,
-    grid,
-    legend: { ...legendCommon, data: ['MAE', 'Bias'] },
+    grid: { ...grid, bottom: 28 },
+    legend: { ...legendCommon, data: [AGE_SERIES.mae, AGE_SERIES.bias] },
     tooltip: {
       ...baseTooltip,
       trigger: 'axis',
-      axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(138,148,166,0.08)' } },
-      formatter: (params: { dataIndex: number }[]) => {
-        const i = params[0]?.dataIndex ?? 0;
-        const m = groups[i]?.metrics;
-        if (!m) return '';
+      axisPointer: { type: 'line', lineStyle: { color: C.muted, width: 1 } },
+      formatter: (params: { axisValue: number }[]) => {
+        const p = byAge.get(params[0]?.axisValue ?? -1);
+        if (!p) return '';
         return [
-          tooltipTitle(titleFor(i)),
-          tooltipRow(C.forecast, 'MAE', fmtMW(m.mae_mw), 'box'),
-          tooltipRow(C.inkSecondary, 'Bias (forecast − actual)', fmtSignedMW(m.bias_mw)),
-          tooltipRow(C.neutral, 'Matched hours', `${m.n_matched}/${m.n_expected}`, 'box'),
+          tooltipTitle(`Forecasts at least ${fmtHours(p.age_h)} old`),
+          tooltipRow(C.forecast, AGE_SERIES.mae, fmtMW(p.mae_mw)),
+          tooltipRow(C.over, 'Bias (forecast − actual)', fmtSignedMW(p.bias_mw)),
+          tooltipRow(C.neutral, 'Matched hours', `${p.n_matched}/${p.n_expected}`, 'box'),
         ].join('');
       },
     },
-    xAxis: categoryAxis(labels),
-    yAxis: mwAxis(),
+    xAxis: {
+      type: 'value',
+      min: 0,
+      max: points.at(-1)?.age_h ?? 48,
+      interval: 6,
+      name: 'Forecast age at delivery, h',
+      nameLocation: 'middle',
+      nameGap: 26,
+      ...axisCommon,
+      splitLine: { show: false },
+    },
+    yAxis: { ...mwAxis(), min: 0 },
     series: [
       {
-        name: 'MAE',
-        type: 'bar',
-        data: groups.map((g) => g.metrics.mae_mw),
-        ...BAR,
-        itemStyle: { ...BAR.itemStyle, color: C.forecast },
-        emphasis: { itemStyle: { color: '#33b8d6' } },
+        name: AGE_SERIES.mae,
+        type: 'line',
+        data: points.map((p) => [p.age_h, p.mae_mw]),
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 2, color: C.forecast },
+        itemStyle: { color: C.forecast, borderColor: C.surface, borderWidth: 1 },
+        markArea: gateLeads
+          ? {
+              silent: true,
+              itemStyle: { color: 'rgba(26, 160, 191, 0.08)' },
+              label: { show: true, color: C.muted, fontSize: 11, position: 'insideTop' },
+              data: [[{ xAxis: gateLeads[0], name: 'At this gate' }, { xAxis: gateLeads[1] }]],
+            }
+          : undefined,
       },
       {
-        name: 'Bias',
+        name: AGE_SERIES.bias,
         type: 'line',
-        data: groups.map((g) => g.metrics.bias_mw),
-        symbol: 'circle',
-        symbolSize: 8,
-        showSymbol: false,
-        lineStyle: { width: 2, color: C.inkSecondary },
-        itemStyle: { color: C.inkSecondary, borderColor: C.surface, borderWidth: 2 },
+        data: points.map((p) => [p.age_h, p.bias_mw]),
+        symbol: 'diamond',
+        symbolSize: 7,
+        lineStyle: { width: 2, color: C.over, type: 'dashed' },
+        itemStyle: { color: C.over },
       },
     ],
   };
-}
-
-export function dailyOption(daily: DailyAccuracy[]): ChartOption {
-  return maeBiasOption(
-    daily.map((d) => fmtShortDay(d.delivery_date)),
-    daily.map((d) => ({ label: d.delivery_date, metrics: d.metrics })),
-    (i) =>
-      `Delivery ${fmtShortDay(daily[i]!.delivery_date)} · decided ${fmtShortDay(
-        daily[i]!.decision_date,
-      )} · click to open brief`,
-  );
-}
-
-export function hourOption(groups: GroupAccuracy[]): ChartOption {
-  return maeBiasOption(
-    groups.map((g) => g.label),
-    groups,
-    (i) => `Delivery hour ${groups[i]!.label} UK`,
-  );
-}
-
-export function horizonBucketOption(groups: GroupAccuracy[]): ChartOption {
-  return maeBiasOption(
-    groups.map((g) => g.label),
-    groups,
-    (i) => `Lead time ${groups[i]!.label}`,
-  );
 }
 
 export function binTone(bin: HistogramBin): 'under' | 'over' | 'neutral' {
@@ -119,7 +97,7 @@ export function histogramOption(bins: HistogramBin[]): ChartOption {
   const colour = { under: C.under, over: C.over, neutral: C.neutral };
   return {
     ...baseOption,
-    grid: { ...grid, top: 32 },
+    grid: { ...grid, top: 32, bottom: 28 },
     tooltip: {
       ...baseTooltip,
       trigger: 'item',
@@ -131,14 +109,19 @@ export function histogramOption(bins: HistogramBin[]): ChartOption {
           tone === 'over' ? 'Over-forecast' : tone === 'under' ? 'Under-forecast' : 'Near zero';
         return [
           tooltipTitle(`${fmtSignedMW(bin.lower_mw)} to ${fmtSignedMW(bin.upper_mw)}`),
-          tooltipRow(colour[tone], label, `${bin.count} hours`, 'box'),
+          tooltipRow(colour[tone], label, `${fmtNumber(bin.count)} hours`, 'box'),
         ].join('');
       },
     },
-    xAxis: categoryAxis(
-      bins.map((b) => fmtCompact(b.lower_mw)),
-      { name: 'Error, MW', nameLocation: 'middle', nameGap: 28 },
-    ),
+    xAxis: {
+      type: 'category',
+      data: bins.map((b) => fmtCompact(b.lower_mw)),
+      name: 'Error (forecast − actual), MW',
+      nameLocation: 'middle',
+      nameGap: 26,
+      ...axisCommon,
+      splitLine: { show: false },
+    },
     yAxis: { type: 'value', name: 'Hours', ...axisCommon },
     series: [
       {
@@ -147,110 +130,6 @@ export function histogramOption(bins: HistogramBin[]): ChartOption {
         data: bins.map((b) => ({ value: b.count, itemStyle: { color: colour[binTone(b)] } })),
         barMaxWidth: 24,
         itemStyle: { borderRadius: [4, 4, 0, 0] },
-      },
-    ],
-  };
-}
-
-export function scatterOption(points: ScatterPoint[]): ChartOption {
-  const max =
-    Math.ceil(Math.max(1000, ...points.flatMap((p) => [p.actual_mw, p.forecast_mw])) / 2000) * 2000;
-  return {
-    ...baseOption,
-    grid: { ...grid, top: 32, right: 20 },
-    tooltip: {
-      ...baseTooltip,
-      trigger: 'item',
-      formatter: (p: { dataIndex: number; seriesType: string }) => {
-        const point = points[p.dataIndex];
-        if (!point || p.seriesType !== 'scatter') return '';
-        return [
-          tooltipTitle(`${fmtUkDateTime(point.start_time)} UK`),
-          tooltipRow(C.forecast, 'Forecast at gate', fmtMW(point.forecast_mw), 'box'),
-          tooltipRow(C.actual, 'Actual', fmtMW(point.actual_mw), 'box'),
-          tooltipRow(C.neutral, 'Error', fmtSignedMW(point.forecast_mw - point.actual_mw), 'box'),
-        ].join('');
-      },
-    },
-    xAxis: { ...mwAxis('Actual MW'), min: 0, max, nameLocation: 'middle', nameGap: 28 },
-    yAxis: { ...mwAxis('Forecast MW'), min: 0, max },
-    series: [
-      {
-        type: 'scatter',
-        data: points.map((p) => [p.actual_mw, p.forecast_mw]),
-        symbolSize: 7,
-        itemStyle: { color: C.forecast, opacity: 0.55 },
-        emphasis: { itemStyle: { opacity: 1, borderColor: C.ink, borderWidth: 1 } },
-        markLine: {
-          silent: true,
-          symbol: 'none',
-          lineStyle: { color: C.muted, width: 1, type: 'solid' },
-          label: { color: C.muted, formatter: 'Perfect forecast', position: 'insideEndTop' },
-          data: [[{ coord: [0, 0] }, { coord: [max, max] }]],
-        },
-      },
-    ],
-  };
-}
-
-export function vintageOption(vintages: VintageAccuracy[]): ChartOption {
-  const afterGate = vintages.filter((v) => !v.available_at_gate).map((v) => v.slot);
-  return {
-    ...baseOption,
-    grid: { ...grid, top: 32 },
-    tooltip: {
-      ...baseTooltip,
-      trigger: 'item',
-      formatter: (p: { dataIndex: number }) => {
-        const v = vintages[p.dataIndex];
-        if (!v) return '';
-        const late = v.n_runs_off_schedule
-          ? ` · ${v.n_runs_off_schedule} late run(s), latest ${v.latest_publish_uk}`
-          : '';
-        return [
-          tooltipTitle(
-            `${v.slot} UK on D−1 · ${v.available_at_gate ? 'available at gate' : 'after gate'}${late}`,
-          ),
-          tooltipRow(
-            v.available_at_gate ? C.forecast : C.later,
-            'MAE',
-            fmtMW(v.metrics.mae_mw),
-            'box',
-          ),
-          tooltipRow(C.inkSecondary, 'Bias', fmtSignedMW(v.metrics.bias_mw)),
-          tooltipRow(C.neutral, 'Delivery days', fmtNumber(v.n_days), 'box'),
-        ].join('');
-      },
-    },
-    xAxis: categoryAxis(vintages.map((v) => v.slot)),
-    yAxis: mwAxis(),
-    series: [
-      {
-        type: 'bar',
-        ...BAR,
-        data: vintages.map((v) => ({
-          value: v.metrics.mae_mw,
-          itemStyle: {
-            color: v.available_at_gate ? C.forecast : C.later,
-            borderRadius: [4, 4, 0, 0],
-          },
-        })),
-        label: {
-          show: true,
-          position: 'top',
-          color: C.inkSecondary,
-          fontSize: 11,
-          formatter: (p: { value: number }) => fmtCompact(Math.round(p.value / 10) * 10),
-        },
-        // Shaded, labelled region: availability is readable without relying on bar colour.
-        markArea: afterGate.length
-          ? {
-              silent: true,
-              itemStyle: { color: 'rgba(144, 133, 233, 0.07)' },
-              label: { show: true, color: C.muted, fontSize: 11, position: 'insideTop' },
-              data: [[{ xAxis: afterGate[0], name: 'After gate' }, { xAxis: afterGate.at(-1) }]],
-            }
-          : undefined,
       },
     ],
   };

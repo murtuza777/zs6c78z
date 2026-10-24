@@ -19,12 +19,6 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function clampDate(date: string, min: string, max: string): string {
-  if (date < min) return min;
-  if (date > max) return max;
-  return date;
-}
-
 /** A date param inside [min, max], or the fallback when missing/invalid/out of range. */
 export function parseDateParam(
   value: string | null,
@@ -37,21 +31,4 @@ export function parseDateParam(
 
 export function parseGateParam(value: string | null, fallback: string): string {
   return isValidGate(value) ? value : fallback;
-}
-
-export function parseNumberParam(
-  value: string | null,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
-  if (value === null || value.trim() === '') return fallback;
-  const n = Number(value);
-  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
-}
-
-export function daysBetween(from: string, to: string): number {
-  return Math.round(
-    (new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000,
-  );
 }

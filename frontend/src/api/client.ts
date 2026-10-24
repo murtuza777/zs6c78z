@@ -1,10 +1,4 @@
-import type {
-  AccuracyResponse,
-  DecisionResponse,
-  HorizonResponse,
-  MetaResponse,
-  Problem,
-} from './types';
+import type { AccuracyResponse, DecisionResponse, MetaResponse, Problem } from './types';
 
 const BASE = `${import.meta.env.VITE_API_BASE ?? ''}/api/v1`;
 
@@ -51,6 +45,4 @@ export const api = {
     getJson<DecisionResponse>(`/decisions/${date}`, { gate }),
   accuracy: (from: string, to: string, gate: string) =>
     getJson<AccuracyResponse>('/accuracy', { from, to, gate }),
-  horizon: (from: string, to: string, horizonH: number) =>
-    getJson<HorizonResponse>('/horizon', { from, to, horizon_h: horizonH }),
 };

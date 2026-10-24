@@ -1,40 +1,33 @@
-import { useCallback, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 
 import { useAccuracy, useMeta } from '../api/hooks';
 import type { AccuracyResponse, MetaResponse } from '../api/types';
-import {
-  dailyOption,
-  histogramOption,
-  horizonBucketOption,
-  hourOption,
-  scatterOption,
-  vintageOption,
-} from '../components/charts/accuracyCharts';
-import { EChart, type ChartEventHandler } from '../components/charts/EChart';
+import { forecastAgeOption, histogramOption } from '../components/charts/accuracyCharts';
+import { EChart } from '../components/charts/EChart';
 import { buildTimelineOption } from '../components/charts/timelineChart';
 import { C } from '../components/charts/theme';
 import { DateRangeFields } from '../components/controls/DateControls';
 import { GateSelector } from '../components/controls/GateSelector';
-import {
-  Card,
-  EmptyState,
-  ErrorState,
-  Legend,
-  PageSkeleton,
-  StatTile,
-  StatusPill,
-  Tag,
-} from '../components/ui/primitives';
+import { Card, ErrorState, Legend, PageSkeleton, StatTile } from '../components/ui/primitives';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useUrlPatch } from '../hooks/useUrlState';
-import { fmtMW, fmtNumber, fmtPct, fmtShortDay, fmtSignedGWh, fmtSignedMW } from '../lib/format';
-import { errorDirection, vintageTradeOff } from '../lib/insights';
+import {
+  fmtGWh,
+  fmtHours,
+  fmtMW,
+  fmtNumber,
+  fmtPct,
+  fmtShortDay,
+  fmtSignedGWh,
+  fmtSignedMW,
+} from '../lib/format';
+import { errorDirection, gateLeadRange } from '../lib/insights';
 import { parseDateParam, parseGateParam } from '../lib/params';
 import { cx } from '../lib/cx';
 
 export function ForecastAccuracy() {
-  useDocumentTitle('Forecast Accuracy');
+  useDocumentTitle('Accuracy');
   const meta = useMeta();
   if (meta.isPending) return <PageSkeleton label="Loading scope…" />;
   if (meta.isError) return <ErrorState error={meta.error} onRetry={() => meta.refetch()} />;
@@ -53,21 +46,20 @@ function Accuracy({ meta }: { meta: MetaResponse }) {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-ink">Forecast Accuracy</h1>
-        <p className="mt-1 max-w-3xl text-sm text-ink-muted">
-          How well the forecast available at gate closure predicted actual wind output, for every
-          decision in the selected range. Error = forecast − actual: positive means more wind was
-          forecast than arrived.
+        <h1 className="text-xl font-semibold text-ink">Forecast accuracy</h1>
+        <p className="mt-1 text-sm text-ink-muted">
+          The forecast you had at the gate against what was generated, every hour. Error = forecast
+          − actual, so positive means less wind arrived than forecast.
         </p>
       </div>
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-3 rounded-xl border border-line bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <GateSelector
           presets={meta.gate_presets}
           value={gate}
           onChange={(g) => patch({ gate: g })}
         />
         <DateRangeFields
-          label="Decision dates"
+          label="Decision days"
           from={from}
           to={to}
           min={min}
@@ -89,176 +81,110 @@ function Accuracy({ meta }: { meta: MetaResponse }) {
 }
 
 function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) {
-  const navigate = useNavigate();
   const s = data.summary;
-  const options = useMemo(
-    () => ({
-      daily: dailyOption(data.daily),
-      histogram: histogramOption(data.histogram),
-      scatter: scatterOption(data.scatter),
-      hour: hourOption(data.by_hour),
-      horizon: horizonBucketOption(data.by_horizon),
-      vintage: vintageOption(data.by_vintage),
-      // Absent in responses from API builds before the timeline existed: hide, don't crash.
-      timeline: data.timeline?.length
-        ? buildTimelineOption(data.timeline, { forecastName: 'Forecast at gate' })
-        : null,
-    }),
-    [data],
-  );
-  const openDay: ChartEventHandler = useCallback(
-    (p: { dataIndex: number; seriesType: string }) => {
-      const day = data.daily[p.dataIndex];
-      if (day) navigate(`/brief?date=${day.decision_date}&gate=${gate}&reveal=1`);
-    },
-    [data.daily, gate, navigate],
-  );
-  const direction = errorDirection(data.scatter);
-  const tradeOff = vintageTradeOff(data.by_vintage);
   const coverage = data.band_coverage;
+  const direction = errorDirection(data.scatter);
+  // Both fields are absent in responses from older API builds: hide those charts, don't crash.
+  const timeline = data.timeline ?? [];
+  const ages = data.by_forecast_age ?? [];
+  const options = useMemo(() => {
+    const points = data.timeline ?? [];
+    return {
+      timeline: points.length
+        ? buildTimelineOption(points, { forecastName: 'Forecast at gate' })
+        : null,
+      ages: data.by_forecast_age?.length
+        ? forecastAgeOption(data.by_forecast_age, gateLeadRange(points))
+        : null,
+      histogram: histogramOption(data.histogram),
+    };
+  }, [data]);
+  const freshest = ages[0];
+  // Older runs stop covering some hours; compare only ages scored on the same hours.
+  const oldest = ages.filter((a) => a.n_matched === freshest?.n_matched).at(-1);
 
   return (
     <>
-      <Card tone="decision">
-        <h2 className="text-sm font-semibold text-ink">
-          Key findings, {fmtShortDay(data.from_date)} to {fmtShortDay(data.to_date)} decisions at{' '}
-          {data.gate.gate} UK
-        </h2>
-        <ul className="mt-2 space-y-1.5 text-sm text-ink-secondary">
-          {s.bias_mw != null && direction != null && (
-            <li>
-              The forecast was above actual output in{' '}
-              <span className="text-ink">{fmtPct(direction.overPct, 0)}</span> of hours and below it
-              in <span className="text-ink">{fmtPct(direction.underPct, 0)}</span>. The average bias
-              was <span className="text-ink">{fmtSignedMW(s.bias_mw)}</span> and the total energy
-              error was{' '}
-              <span className="text-ink">{fmtSignedGWh((s.energy_error_mwh ?? 0) / 1000, 0)}</span>.
-              {s.bias_mw > 0
-                ? ' On balance, planning on the raw forecast would have overstated wind supply.'
-                : s.bias_mw < 0
-                  ? ' On balance, planning on the raw forecast would have understated wind supply.'
-                  : ''}
-            </li>
-          )}
-          <li>
-            A typical hour missed by <span className="text-ink">{fmtMW(s.mae_mw)}</span> (MAE). One
-            hour in ten missed by more than{' '}
-            <span className="text-ink">{fmtMW(s.p90_abs_error_mw)}</span>.
-          </li>
-          {tradeOff && tradeOff.best.slot !== tradeOff.usable.slot && (
-            <li>
-              The latest run available at the gate ({tradeOff.usable.slot} UK) had an MAE of{' '}
-              <span className="text-ink">{fmtMW(tradeOff.usable.metrics.mae_mw)}</span>. The{' '}
-              {tradeOff.best.slot} run on D−1 was{' '}
-              <span className="text-ink">{fmtPct(tradeOff.maeReductionPct, 0)}</span> more accurate
-              {tradeOff.best.available_at_gate
-                ? '.'
-                : ', but it is published after this gate closes.'}
-            </li>
-          )}
-          {coverage.available && coverage.coverage_pct != null && (
-            <li>
-              The hourly P10–P90 band contained the actual in{' '}
-              <span className="text-ink">{fmtPct(coverage.coverage_pct)}</span> of held-out hours
-              {coverage.daily_energy.coverage_pct != null && (
-                <>
-                  {' '}
-                  and the daily energy range in{' '}
-                  <span className="text-ink">
-                    {fmtPct(coverage.daily_energy.coverage_pct, 0)}
-                  </span>{' '}
-                  of days
-                </>
-              )}
-              , against a nominal {fmtPct(coverage.nominal_pct, 0)}.
-            </li>
-          )}
-        </ul>
-      </Card>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile emphasis label="Typical hourly miss (MAE)" value={fmtMW(s.mae_mw)} />
         <StatTile
-          emphasis
-          label="MAE"
-          value={fmtMW(s.mae_mw)}
-          hint="Mean absolute error: the average size of the hourly miss, ignoring direction."
-        />
-        <StatTile
-          label="RMSE"
-          value={fmtMW(s.rmse_mw)}
-          hint="Root mean squared error. Penalises large misses more than MAE; RMSE well above MAE means occasional big misses."
-        />
-        <StatTile
-          label="Bias (mean error)"
+          label="Bias"
           value={fmtSignedMW(s.bias_mw)}
-          detail="forecast − actual"
-          hint="Average signed error. Positive = the forecast expected more wind than arrived (over-forecast)."
-        />
-        <StatTile
-          label="WAPE"
-          value={fmtPct(s.wape_pct)}
-          detail="Σ|error| / Σ actual"
-          hint="Weighted absolute percentage error: total absolute error as a share of total actual output. Used instead of MAPE, which explodes when wind output is low."
-        />
-        <StatTile
-          label="P90 absolute error"
-          value={fmtMW(s.p90_abs_error_mw)}
-          detail={`P50 ${fmtMW(s.p50_abs_error_mw)}`}
-          hint="Nine hours in ten missed by less than this; one in ten missed by more. P50 is the median miss."
-        />
-        <StatTile
-          label="P99 / max error"
-          value={fmtMW(s.p99_abs_error_mw)}
-          detail={`max ${fmtMW(s.max_abs_error_mw)}`}
-          hint="Tail risk: the 99th percentile and the single largest hourly miss in the range."
-        />
-        <StatTile
-          label="Correlation"
-          value={fmtNumber(s.correlation, 3)}
-          detail="Pearson r, unitless"
-          hint="How well the forecast tracks the shape of actual output (1 = perfect). A high r with a large bias means the shape is right but the level is off."
-        />
-        <StatTile
-          label="Matched hours"
-          hint="Hours with both a forecast available at the gate and a complete hourly actual. All statistics use matched hours only."
-          value={`${s.n_matched}/${s.n_expected}`}
           detail={
-            <StatusPill status={s.n_matched === s.n_expected ? 'good' : 'warning'}>
-              {fmtPct(s.coverage_pct)} coverage
-            </StatusPill>
+            s.bias_mw == null
+              ? undefined
+              : s.bias_mw >= 0
+                ? 'forecast ran high'
+                : 'forecast ran low'
           }
+        />
+        <StatTile
+          label="9 in 10 hours missed by less than"
+          value={fmtMW(s.p90_abs_error_mw)}
+          detail={`worst hour ${fmtMW(s.max_abs_error_mw)}`}
+        />
+        <StatTile
+          label="Actual inside the P10–P90 range"
+          value={fmtPct(coverage.coverage_pct, 0)}
+          detail={`of held-out hours, target ${fmtPct(coverage.nominal_pct, 0)}`}
         />
       </div>
 
+      {direction && s.bias_mw != null && s.energy_error_mwh != null && (
+        <p className="text-sm text-ink-secondary">
+          {Math.abs(s.bias_mw) < 0.25 * (s.mae_mw ?? 0) ? (
+            <>
+              Errors went both ways: the forecast was high in {fmtPct(direction.overPct, 0)} of
+              hours and low in {fmtPct(direction.underPct, 0)}.
+            </>
+          ) : (
+            <>
+              The forecast was{' '}
+              <strong className="text-ink">
+                {s.bias_mw > 0 ? 'too high' : 'too low'} in{' '}
+                {fmtPct(s.bias_mw > 0 ? direction.overPct : direction.underPct, 0)} of hours
+              </strong>
+              . Buying on it as-is would have counted on{' '}
+              {fmtGWh(Math.abs(s.energy_error_mwh) / 1000, 0)} {s.bias_mw > 0 ? 'more' : 'less'}{' '}
+              wind than arrived over these {data.daily.length} days.
+            </>
+          )}
+        </p>
+      )}
+
       {options.timeline && (
         <Card
-          title="Forecast at the gate vs actual, every hour"
-          subtitle={`For each delivery hour: the forecast that was available at ${data.gate.gate} UK on the decision day, and what was generated. Drag the slider or scroll to zoom; gaps are hours without a forecast or a complete actual.`}
+          title="Forecast at the gate vs actual"
+          subtitle="Drag the slider or scroll to zoom. Gaps are hours without a forecast or a complete actual."
         >
           <EChart
             option={options.timeline}
-            height={360}
-            ariaLabel={`Hourly forecast available at ${data.gate.gate} and actual wind generation, ${data.timeline?.length ?? 0} hours`}
+            height={340}
+            ariaLabel={`Hourly forecast available at ${data.gate.gate} and actual wind generation, ${timeline.length} hours`}
           />
         </Card>
       )}
 
-      <Card
-        title="Daily MAE and bias by delivery day"
-        subtitle="Click a bar to open that day's Day-Ahead Brief with actuals revealed."
-      >
-        <EChart
-          option={options.daily}
-          height={300}
-          ariaLabel="Daily MAE and bias"
-          onClick={openDay}
-        />
-      </Card>
-
       <div className="grid gap-4 lg:grid-cols-2">
+        {options.ages && (
+          <Card
+            title="Error vs forecast age"
+            subtitle={
+              freshest?.mae_mw != null && oldest?.mae_mw != null && oldest !== freshest
+                ? `MAE grows from ${fmtMW(freshest.mae_mw)} with the freshest run to ${fmtMW(oldest.mae_mw)} for runs ${fmtHours(oldest.age_h)} old.`
+                : 'The same delivery hours scored with older and older forecasts.'
+            }
+          >
+            <EChart
+              option={options.ages}
+              height={280}
+              ariaLabel="MAE and bias against minimum forecast age"
+            />
+          </Card>
+        )}
         <Card
           title="Error distribution"
-          subtitle={`Hourly errors in ${fmtNumber(data.histogram_bin_width_mw)} MW bins.`}
+          subtitle={`Hours per ${fmtNumber(data.histogram_bin_width_mw)} MW error bin.`}
           actions={
             <Legend
               items={[
@@ -274,149 +200,55 @@ function AccuracyBody({ data, gate }: { data: AccuracyResponse; gate: string }) 
             ariaLabel="Histogram of forecast errors"
           />
         </Card>
-        <Card
-          title="Forecast vs actual"
-          subtitle="Each point is one hour. Points above the diagonal are over-forecasts."
-        >
-          <EChart
-            option={options.scatter}
-            height={280}
-            ariaLabel="Scatter of forecast against actual"
-          />
-        </Card>
-        <Card
-          title="Error by delivery hour (UK)"
-          subtitle="Which hours of the delivery day are hardest to forecast."
-        >
-          <EChart option={options.hour} height={260} ariaLabel="MAE and bias by hour of day" />
-        </Card>
-        <Card
-          title="Error by lead time"
-          subtitle="Lead time = hours from publication to the target hour. At a fixed gate, lead time and hour of day move together."
-        >
-          <EChart
-            option={options.horizon}
-            height={260}
-            ariaLabel="MAE and bias by lead-time bucket"
-          />
-        </Card>
       </div>
 
-      <Card
-        title="Forecast vintage comparison: runs published on D−1"
-        subtitle="MAE of each scheduled WINDFOR run for the following delivery day, over the same days. It shows what waiting for a later run would gain."
-        actions={
-          <Legend
-            items={[
-              { color: C.forecast, label: 'Available at gate' },
-              { color: C.later, label: 'Published after gate' },
-            ]}
-          />
-        }
-      >
-        <EChart
-          option={options.vintage}
-          height={260}
-          ariaLabel="MAE by forecast publication slot"
-        />
-        {data.by_vintage.some((v) => v.n_runs_off_schedule) && (
-          <p className="mt-2 text-xs text-ink-muted">
-            Late runs are counted in the slot they replaced (e.g. a run published at 12:25 instead
-            of 11:30).
-          </p>
-        )}
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Worst five delivery days" subtitle="Ranked by MAE" className="lg:col-span-2">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-left text-sm tabular-nums">
-              <thead className="text-xs text-ink-muted">
-                <tr className="border-b border-line">
-                  <th className="py-2 pr-3 font-medium">Delivery day</th>
-                  <th className="py-2 pr-3 text-right font-medium">MAE</th>
-                  <th className="py-2 pr-3 text-right font-medium">Bias</th>
-                  <th className="py-2 pr-3 text-right font-medium">Energy error</th>
-                  <th className="py-2 font-medium" />
+      <Card title="Worst days" subtitle="Ranked by MAE. Open one to see the forecast and actuals.">
+        {/* relative: keeps the visually hidden header inside the scroll box on phones */}
+        <div className="relative overflow-x-auto">
+          <table className="w-full min-w-[480px] text-left text-sm tabular-nums">
+            <thead className="text-xs text-ink-muted">
+              <tr className="border-b border-line">
+                <th className="py-2 pr-3 font-medium">Delivery day</th>
+                <th className="py-2 pr-3 text-right font-medium">MAE</th>
+                <th className="py-2 pr-3 text-right font-medium">Bias</th>
+                <th className="py-2 pr-3 text-right font-medium">Energy error</th>
+                <th className="py-2 font-medium">
+                  <span className="sr-only">Open</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.worst_days.map((d) => (
+                <tr key={d.delivery_date} className="border-b border-line/60 last:border-0">
+                  <td className="py-1.5 pr-3 text-ink">{fmtShortDay(d.delivery_date)}</td>
+                  <td className="py-1.5 pr-3 text-right">{fmtMW(d.metrics.mae_mw)}</td>
+                  <td className="py-1.5 pr-3 text-right text-ink-secondary">
+                    {fmtSignedMW(d.metrics.bias_mw)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-ink-secondary">
+                    {fmtSignedGWh((d.metrics.energy_error_mwh ?? 0) / 1000)}
+                  </td>
+                  <td className="py-1.5 text-right">
+                    <Link
+                      to={`/brief?date=${d.decision_date}&gate=${gate}&reveal=1`}
+                      className="text-xs text-accent hover:underline"
+                    >
+                      Open day →
+                    </Link>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {data.worst_days.map((d) => (
-                  <tr key={d.delivery_date} className="border-b border-line/60 last:border-0">
-                    <td className="py-1.5 pr-3 text-ink">{fmtShortDay(d.delivery_date)}</td>
-                    <td className="py-1.5 pr-3 text-right">{fmtMW(d.metrics.mae_mw)}</td>
-                    <td className="py-1.5 pr-3 text-right text-ink-secondary">
-                      {fmtSignedMW(d.metrics.bias_mw)}
-                    </td>
-                    <td className="py-1.5 pr-3 text-right text-ink-secondary">
-                      {fmtSignedGWh((d.metrics.energy_error_mwh ?? 0) / 1000)}
-                    </td>
-                    <td className="py-1.5 text-right">
-                      <Link
-                        to={`/brief?date=${d.decision_date}&gate=${gate}&reveal=1`}
-                        className="text-xs text-accent hover:underline"
-                      >
-                        Open brief →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-        <Card title="Uncertainty band check" subtitle="Held-out (leave-one-day-out) coverage">
-          {coverage.available && coverage.coverage_pct != null ? (
-            <>
-              <div className="text-3xl font-semibold text-ink">{fmtPct(coverage.coverage_pct)}</div>
-              <p className="mt-1 text-xs text-ink-secondary">
-                of {fmtNumber(coverage.n_evaluated)} hours fell inside P10–P90 (nominal{' '}
-                {fmtPct(coverage.nominal_pct, 0)}).
-              </p>
-              <ul className="mt-3 space-y-1 text-xs text-ink-secondary">
-                {coverage.by_bucket.map((b) => (
-                  <li key={b.label} className="flex justify-between tabular-nums">
-                    <span>{b.label}</span>
-                    <span>
-                      {fmtPct(b.coverage_pct, 0)}{' '}
-                      <span className="text-ink-muted">({b.n_evaluated} h)</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {coverage.daily_energy.coverage_pct != null && (
-                <p className="mt-3 text-xs text-ink-secondary">
-                  Daily energy range: {fmtPct(coverage.daily_energy.coverage_pct, 0)} of{' '}
-                  {coverage.daily_energy.n_days} days inside P10–P90.
-                </p>
-              )}
-              <p className="mt-3 text-xs text-ink-muted">
-                Empirical intervals from one month of data, not a confidence guarantee. Errors
-                within a day, and across neighbouring days, are correlated, so coverage on new data
-                may be lower.
-              </p>
-            </>
-          ) : (
-            <EmptyState title="Not enough history to evaluate a band" />
-          )}
-        </Card>
-      </div>
-
-      <Card title="Data coverage">
-        <div className="flex flex-wrap gap-2">
-          <StatusPill status={s.n_missing_forecast === 0 ? 'good' : 'warning'}>
-            {s.n_missing_forecast} hours without an eligible forecast
-          </StatusPill>
-          <StatusPill status={s.n_missing_actual === 0 ? 'good' : 'warning'}>
-            {s.n_missing_actual} hours without a complete actual
-          </StatusPill>
-          <Tag tone="neutral">{data.daily.length} delivery days</Tag>
-          <Tag tone="neutral">snapshot {data.snapshot.version}</Tag>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <p className="mt-2 text-xs text-ink-muted">
-          Unmatched hours are excluded from every statistic and never filled in.
-        </p>
       </Card>
+
+      <p className="text-xs text-ink-muted">
+        {s.n_matched} of {s.n_expected} hours scored
+        {s.n_matched < s.n_expected &&
+          ` (${s.n_missing_forecast} without a forecast at the gate, ${s.n_missing_actual} without a complete actual; never filled in)`}
+        . RMSE {fmtMW(s.rmse_mw)}, WAPE {fmtPct(s.wape_pct)}.
+      </p>
     </>
   );
 }

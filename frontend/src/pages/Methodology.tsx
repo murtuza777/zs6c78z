@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react';
 
 import { useMeta } from '../api/hooks';
-import { Card, ErrorState, PageSkeleton } from '../components/ui/primitives';
+import { ErrorState, PageSkeleton } from '../components/ui/primitives';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { fmtNumber, fmtUkDateTime } from '../lib/format';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Card title={title}>
-      <div className="space-y-2 text-sm leading-relaxed text-ink-secondary">{children}</div>
-    </Card>
+    <section className="space-y-2">
+      <h2 className="text-sm font-semibold text-ink">{title}</h2>
+      {children}
+    </section>
   );
 }
 
@@ -25,253 +26,80 @@ export function Methodology() {
   const m = meta.data;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold text-ink">Methodology</h1>
-        <p className="mt-1 max-w-3xl text-sm text-ink-muted">
-          How WindDesk selects, aligns and scores forecasts. Every number in the portal comes from
-          the validated snapshot <Code>{m.snapshot.version}</Code>, built{' '}
-          {fmtUkDateTime(m.snapshot.created_at)} UK.
+    <article className="max-w-3xl space-y-6 text-sm leading-relaxed text-ink-secondary">
+      <h1 className="text-xl font-semibold text-ink">Methodology</h1>
+
+      <Section title="Data">
+        <p>
+          Actuals are Elexon <Code>FUELHH</Code> with <Code>fuelType = WIND</Code>: average MW per
+          30-minute settlement period ({fmtNumber(m.coverage.actual_half_hours)} of{' '}
+          {fmtNumber(m.coverage.actual_half_hours_expected)} half-hours present). Forecasts are
+          Elexon <Code>WINDFOR</Code>, hourly MW for metered wind farms ({m.coverage.forecast_runs}{' '}
+          runs, published at {m.publish_slots_uk.join(', ')} UK). Scope: decisions{' '}
+          {m.decision_date_min} to {m.decision_date_max}, so delivery {m.delivery_date_min} to{' '}
+          {m.delivery_date_max}. The app serves a checksummed snapshot (
+          <Code>{m.snapshot.version}</Code>, built {fmtUkDateTime(m.snapshot.created_at)} UK), so it
+          never depends on the live API. Times are stored in UTC and shown in UK time.
         </p>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Section title="Data sources">
-          <p>
-            <strong className="text-ink">Actuals:</strong> Elexon BMRS <Code>FUELHH</Code> stream,{' '}
-            <Code>fuelType = WIND</Code>. Each value is the average MW over a 30-minute settlement
-            period starting at <Code>startTime</Code>. The snapshot has{' '}
-            {fmtNumber(m.coverage.actual_half_hours)} of{' '}
-            {fmtNumber(m.coverage.actual_half_hours_expected)} expected half-hours.
-          </p>
-          <p>
-            <strong className="text-ink">Forecasts:</strong> Elexon BMRS <Code>WINDFOR</Code>{' '}
-            stream. These are hourly MW forecasts for metered wind farms visible to NESO. The
-            snapshot holds {fmtNumber(m.coverage.forecast_runs)} runs (
-            {fmtNumber(m.coverage.forecast_rows)} rows) published{' '}
-            {fmtUkDateTime(m.coverage.first_publish_time)} to{' '}
-            {fmtUkDateTime(m.coverage.last_publish_time)} UK. Runs are published at{' '}
-            {m.publish_slots_uk.join(', ')} UK.
-            {m.coverage.off_schedule_runs.length > 0 &&
-              ` Off-schedule runs: ${m.coverage.off_schedule_runs.map((t) => fmtUkDateTime(t)).join(', ')} UK.`}
-          </p>
-          <p>
-            Scope: decisions made {m.decision_date_min} to {m.decision_date_max}, so delivery days{' '}
-            {m.delivery_date_min} to {m.delivery_date_max}. Only data needed for those decisions was
-            ingested. The app serves a checksummed snapshot, so it never depends on the live API.
-          </p>
-        </Section>
+      </Section>
 
-        <Section title="Timestamps and time zones">
-          <p>
-            All data is stored and served in UTC. Decision dates, gate times and delivery days are
-            interpreted in <Code>{m.timezone}</Code>. A delivery day runs from 00:00 to 24:00 UK
-            local time: 48 settlement periods normally, 46 or 50 on clock-change days. January 2026
-            is GMT throughout, but the code handles daylight saving. An ambiguous autumn wall-clock
-            time resolves to its first (earlier) occurrence. A gate inside the spring-forward gap is
-            rejected.
-          </p>
-        </Section>
+      <Section title="The forecast you had at the gate">
+        <p>
+          For decision day D and gate time G (UK): the delivery day is D+1, 00:00–24:00 UK. Keep
+          forecast runs with <Code>publishTime ≤ D at G</Code>, keep target hours inside the
+          delivery day and after their own publish time (each run repeats past hours, which are not
+          forecasts), then take the latest run for each hour. Tests check on the real data that no
+          selected forecast was published after the gate, for every decision at 36 gate times.
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          {m.gate_presets.map((p) => (
+            <li key={p.id}>
+              <span className="text-ink">
+                {p.gate} · {p.label}
+              </span>
+              : {p.description}{' '}
+              <a
+                className="text-accent hover:underline"
+                href={p.source_url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Source
+              </a>
+            </li>
+          ))}
+        </ul>
+      </Section>
 
-        <Section title="Which forecast was available at the gate">
-          <p>For decision date D with gate closure G (UK local):</p>
-          <ol className="list-decimal space-y-1 pl-5">
-            <li>cutoff = D at G, converted to UTC;</li>
-            <li>delivery window = D+1, 00:00 to 24:00 UK, in UTC;</li>
-            <li>
-              keep runs with <Code>publishTime ≤ cutoff</Code>;
-            </li>
-            <li>
-              keep targets inside the delivery window and strictly after their publication. Each run
-              also repeats about a day of past hours, which are not predictions;
-            </li>
-            <li>
-              for each target hour, take the latest eligible <Code>publishTime</Code>.
-            </li>
-          </ol>
-          <p>
-            Automated tests check that no selected forecast is ever published after the cutoff, for
-            every January decision across 36 gate times.
-          </p>
-        </Section>
+      <Section title="Scoring">
+        <p>
+          The hourly actual is the mean of its two half-hours; hours missing either half are left
+          out, never filled in. Error = forecast − actual, so positive means less wind arrived than
+          forecast. MAE is the average size of the miss, bias the average signed error, and P90 the
+          miss that 9 in 10 hours stayed under.
+        </p>
+      </Section>
 
-        <Section title="Gate-closure scenarios">
-          <p>
-            Gate times are configurable scenarios, not hard-coded facts. The presets come from
-            exchange documentation:
-          </p>
-          <ul className="space-y-1.5">
-            {m.gate_presets.map((p) => (
-              <li key={p.id}>
-                <strong className="text-ink">
-                  {p.gate} · {p.label}
-                </strong>
-                : {p.description}{' '}
-                <a
-                  className="text-accent hover:underline"
-                  href={p.source_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {p.source}
-                </a>{' '}
-                (checked {p.verified_on}).
-              </li>
-            ))}
-          </ul>
-          <p>
-            WINDFOR <Code>publishTime</Code> is treated as the moment a forecast became available,
-            as the challenge brief defines it. Elexon’s endpoint description lists the schedule as
-            03:30, 05:30, …, 23:30. The observed January values are one hour earlier (02:30, 04:30,
-            …), which matches a schedule fixed in Central European Time. If the data reaches users
-            later than <Code>publishTime</Code>, choose an earlier custom gate to model that delay.
-          </p>
-        </Section>
+      <Section title="How far to trust it">
+        <p>
+          The typical miss on the Day-Ahead page uses only January days that had finished before the
+          decision, so it is what the desk could really have known. The P10–P90 range comes from
+          errors at the same lead time ({m.band.bucket_h} h buckets) on every other January day,
+          leaving the day itself out. It is a pilot calibration from one month (the Accuracy page
+          shows how often it held); errors run in streaks, so expect it to hold less well on new
+          data. The daily GWh range uses daily energy errors, because hourly percentiles do not add
+          up to a daily one.
+        </p>
+      </Section>
 
-        <Section title="Temporal alignment">
-          <p>
-            Forecasts are hourly and actuals half-hourly. Each hourly forecast at <Code>H</Code> is
-            compared with the{' '}
-            <strong className="text-ink">mean of the two half-hourly actuals</strong> starting at{' '}
-            <Code>H</Code> and <Code>H+30m</Code>. If either half-hour is missing, the hour’s actual
-            is left empty and the hour is excluded. It is never estimated from one half. The
-            first-half-hour value is kept for a sensitivity check in the analysis notebook.
-          </p>
-        </Section>
-
-        <Section title="Metric definitions">
-          <ul className="space-y-1">
-            <li>
-              <Code>error = forecast − actual</Code>. Positive values are over-forecasts: less wind
-              arrived than forecast.
-            </li>
-            <li>
-              <strong className="text-ink">MAE</strong> mean |error|;{' '}
-              <strong className="text-ink">RMSE</strong> √mean(error²);{' '}
-              <strong className="text-ink">bias</strong> mean error (MW).
-            </li>
-            <li>
-              <strong className="text-ink">WAPE</strong> Σ|error| / Σ actual. It is not shown when
-              the total is 0. MAPE is not used because it blows up when wind output is low.
-            </li>
-            <li>
-              Absolute-error percentiles P50/P90/P95/P99 use linear interpolation, plus the maximum.
-            </li>
-            <li>Pearson correlation, shown only when both series vary and n ≥ 3.</li>
-            <li>
-              Energy (MWh) = Σ hourly MW × 1 h over matched hours only, so forecast and actual cover
-              the same hours.
-            </li>
-            <li>
-              Matched hours have both a selected forecast and a complete actual. Coverage = matched
-              / expected.
-            </li>
-          </ul>
-        </Section>
-
-        <Section title="Error statistics on the Day-Ahead Brief">
-          <p>
-            <strong className="text-ink">Typical error, known at gate</strong> uses only delivery
-            days that had <em>ended before the decision day began</em>, at the same gate and
-            lead-time buckets. It is what the desk could actually have known (none on 1 Jan, 13 days
-            by 15 Jan).
-          </p>
-          <p>
-            <strong className="text-ink">All other days</strong> and the uncertainty bands use every
-            other January delivery day, including later ones. This is pilot calibration for a
-            one-month backtest. A live deployment would use trailing history only.
-          </p>
-        </Section>
-
-        <Section title="Uncertainty bands (P10–P90)">
-          <p>
-            <strong className="text-ink">Hourly band:</strong> errors of the forecasts selected at
-            the gate are grouped into {m.band.bucket_h}-hour lead-time buckets. For each delivery
-            day, the band is forecast − the {fmtNumber(m.band.upper_quantile * 100)}th and{' '}
-            {fmtNumber(m.band.lower_quantile * 100)}th error percentiles from{' '}
-            <strong className="text-ink">all other</strong> delivery days (leave-one-day-out),
-            clipped at 0 MW. A bucket needs at least {m.band.min_obs} observations from{' '}
-            {m.band.min_days} days, otherwise no band is shown.
-          </p>
-          <p>
-            <strong className="text-ink">Daily energy range:</strong> hourly quantiles do not add up
-            to a daily quantile, so the delivery-day GWh range uses the 10th–90th percentile of{' '}
-            <em>daily</em> energy errors on other fully forecast days (at least{' '}
-            {m.band.min_energy_days}). It is not shown for partially forecast days.
-          </p>
-          <p>
-            Held-out coverage of both is reported on the Accuracy page. These are empirical ranges
-            from one autocorrelated month, not guaranteed confidence intervals.
-          </p>
-        </Section>
-
-        <Section title="Procurement what-if (Day-Ahead Brief)">
-          <p>
-            You enter a flat demand <Code>D</Code> (MW) and the share <Code>s</Code> of national
-            wind you can count on. For each delivery hour WindDesk computes:
-          </p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>
-              <strong className="text-ink">Buy if wind matches the forecast</strong> = max(0, D − s
-              × forecast);
-            </li>
-            <li>
-              <strong className="text-ink">Buy to cover low wind</strong> = max(0, D − s × hourly
-              P10);
-            </li>
-            <li>
-              <strong className="text-ink">Actually needed</strong> (hindsight only) = max(0, D − s
-              × actual).
-            </li>
-          </ul>
-          <p>
-            Hourly MW sum to MWh, which is shown as GWh. The difference between the two plans is the
-            extra volume bought because the forecast is uncertain. Only hours that have a forecast
-            are planned, and hindsight compares the same hours. This is illustrative: WindDesk has
-            no demand, contract or price data, and does not recommend trades.
-          </p>
-        </Section>
-
-        <Section title="Data-quality signals">
-          <p>
-            Coverage pills count hours that have a forecast and a complete actual. A{' '}
-            <strong className="text-ink">stale feed</strong> warning appears when two or more
-            consecutive WINDFOR runs repeated identical values for the delivery day: the forecast is
-            then older than its publish time suggests. A run published late (e.g. 12:25 instead of
-            11:30) counts in its slot, but is only available to gates after its real publication
-            time.
-          </p>
-        </Section>
-        <Section title="Known limitations">
-          <ul className="list-disc space-y-1 pl-5">
-            <li>
-              Only national wind, from two datasets. There is no demand, embedded solar or wind,
-              price, contract or imbalance data, so wind forecast error is not the same as
-              procurement error.
-            </li>
-            <li>
-              Forecasts were consistently higher than metered output in January. Curtailment and
-              constraint actions may explain part of this. The supplied data cannot confirm it.
-            </li>
-            <li>
-              One month of history; errors are autocorrelated within and across days, so band
-              coverage estimates are uncertain, and the leave-one-day-out pool includes days after
-              each decision (pilot calibration).
-            </li>
-            <li>
-              The delivery day is the UK settlement day (00:00–24:00). Some exchange products use
-              other delivery periods.
-            </li>
-            <li>
-              <Code>publishTime</Code> is treated as the moment a forecast became available. Any
-              real publication lag can be modelled with an earlier custom gate.
-            </li>
-            <li>
-              WINDFOR’s exact value semantics (hourly mean or instant) are not documented. The
-              hourly-mean comparison is a documented assumption.
-            </li>
-          </ul>
-        </Section>
-      </div>
-    </div>
+      <Section title="Limits">
+        <p>
+          Wind forecast error is not procurement error: both streams cover metered wind farms only,
+          not embedded wind, and the buy-beyond-wind what-if uses a flat demand you enter, with no
+          prices or contracts. One month of data is enough to show the bias and its size, not to
+          model seasons.
+        </p>
+      </Section>
+    </article>
   );
 }

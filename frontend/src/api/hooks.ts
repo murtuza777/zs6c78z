@@ -22,11 +22,3 @@ export const useAccuracy = (from: string, to: string, gate: string) =>
     placeholderData: keepPreviousData,
     ...immutable,
   });
-
-export const useHorizon = (from: string, to: string, horizonH: number) =>
-  useQuery({
-    queryKey: ['horizon', from, to, horizonH],
-    queryFn: () => api.horizon(from, to, horizonH),
-    placeholderData: keepPreviousData,
-    ...immutable,
-  });

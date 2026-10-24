@@ -1,4 +1,3 @@
-import type { HorizonResponse } from '../../api/types';
 import { fmtHours, fmtMW, fmtSignedMW, fmtUkDateTime, fmtUkTime } from '../../lib/format';
 import type { ChartOption } from './EChart';
 import {
@@ -139,8 +138,4 @@ export function buildTimelineOption(
     grid: { top: 72 },
     xAxis: { interval: interval >= DAY_MS ? 7 * DAY_MS : 2 * interval },
   });
-}
-
-export function buildHorizonOption(data: HorizonResponse): ChartOption {
-  return buildTimelineOption(data.rows, { forecastName: 'Forecast' });
 }

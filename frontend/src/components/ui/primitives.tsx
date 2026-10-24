@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode, useId } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 import { cx } from '../../lib/cx';
 
@@ -8,14 +8,12 @@ export function Card({
   actions,
   children,
   className,
-  tone,
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
-  tone?: 'decision' | 'hindsight';
 }) {
   return (
     <section
@@ -23,8 +21,6 @@ export function Card({
         // min-w-0 lets cards shrink inside grid/flex parents so wide tables scroll internally
         // instead of stretching the page on narrow screens.
         'min-w-0 rounded-xl border border-line bg-surface p-4 sm:p-5',
-        tone === 'decision' && 'border-l-2 border-l-forecast',
-        tone === 'hindsight' && 'border-l-2 border-l-actual',
         className,
       )}
     >
@@ -42,53 +38,21 @@ export function Card({
   );
 }
 
-/**
- * Accessible explanation for a metric. The tooltip is positioned against the nearest
- * `relative` ancestor (the tile), so it can never overflow the viewport on small screens.
- */
-export function InfoHint({ label, children }: { label: string; children: ReactNode }) {
-  const id = useId();
-  return (
-    <>
-      <button
-        type="button"
-        aria-label={`What is ${label}?`}
-        aria-describedby={id}
-        className="peer ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none text-ink-muted ring-1 ring-inset ring-edge hover:text-ink focus-visible:text-ink"
-      >
-        i
-      </button>
-      <span
-        role="tooltip"
-        id={id}
-        className="pointer-events-none invisible absolute inset-x-2 top-full z-30 mt-1 rounded-md bg-[#1b2b47] px-2.5 py-2 text-xs font-normal leading-snug text-ink-secondary opacity-0 shadow-xl ring-1 ring-edge transition-opacity peer-hover:visible peer-hover:opacity-100 peer-focus-visible:visible peer-focus-visible:opacity-100"
-      >
-        {children}
-      </span>
-    </>
-  );
-}
-
 export function StatTile({
   label,
   value,
   detail,
   emphasis,
-  hint,
 }: {
   label: string;
   value: ReactNode;
   detail?: ReactNode;
   emphasis?: boolean;
-  hint?: ReactNode;
 }) {
   return (
-    <div className="relative min-w-0 rounded-lg bg-raised/60 px-3 py-2.5">
-      <div className="flex items-start text-xs leading-snug text-ink-muted">
-        {/* Labels wrap rather than truncate, so narrow screens keep the full meaning. */}
-        <span className="min-w-0">{label}</span>
-        {hint && <InfoHint label={label}>{hint}</InfoHint>}
-      </div>
+    <div className="min-w-0 rounded-lg border border-line bg-surface px-3 py-2.5">
+      {/* Labels wrap rather than truncate, so narrow screens keep the full meaning. */}
+      <div className="text-xs leading-snug text-ink-muted">{label}</div>
       <div
         className={cx(
           'mt-1 font-semibold text-ink',
@@ -102,75 +66,15 @@ export function StatTile({
   );
 }
 
-export function Tag({
-  tone,
-  children,
-}: {
-  tone: 'decision' | 'hindsight' | 'later' | 'neutral';
-  children: ReactNode;
-}) {
-  const styles = {
-    decision: 'bg-forecast/15 text-[#7fd6ea] ring-forecast/40',
-    hindsight: 'bg-actual/15 text-[#f0c36b] ring-actual/40',
-    later: 'bg-later/15 text-[#c4bdf6] ring-later/40',
-    neutral: 'bg-raised text-ink-secondary ring-edge',
-  }[tone];
-  return (
-    <span
-      className={cx(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
-        styles,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-const STATUS_ICON = { good: '✓', warning: '!', critical: '×' } as const;
-
-/** Status always carries an icon and a label, never colour alone. */
-export function StatusPill({
-  status,
-  children,
-  title,
-}: {
-  status: 'good' | 'warning' | 'critical';
-  children: ReactNode;
-  title?: string;
-}) {
-  const color = {
-    good: 'text-[#5fd35f] ring-good/40',
-    warning: 'text-warning ring-warning/40',
-    critical: 'text-[#f07a7a] ring-critical/50',
-  }[status];
-  return (
-    <span
-      title={title}
-      className={cx(
-        'inline-flex items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 text-xs ring-1 ring-inset',
-        color,
-      )}
-    >
-      <span aria-hidden className="font-bold">
-        {STATUS_ICON[status]}
-      </span>
-      <span className="text-ink-secondary">{children}</span>
-    </span>
-  );
-}
-
 export function Toggle({
   checked,
   onChange,
   label,
-  description,
   tone = 'accent',
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
   label: string;
-  description?: string;
   tone?: 'accent' | 'hindsight';
 }) {
   return (
@@ -193,10 +97,7 @@ export function Toggle({
           )}
         />
       </button>
-      <span className="text-sm">
-        <span className="text-ink">{label}</span>
-        {description && <span className="ml-1.5 text-xs text-ink-muted">{description}</span>}
-      </span>
+      <span className="text-sm text-ink">{label}</span>
     </label>
   );
 }
@@ -233,27 +134,6 @@ export function PageSkeleton({ label }: { label: string }) {
         ))}
       </div>
       <div className={cx(block, 'h-80')} />
-    </div>
-  );
-}
-
-export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="rounded-xl border border-dashed border-edge px-4 py-6 text-center text-sm text-ink-muted">
-      <p className="font-medium text-ink-secondary">{title}</p>
-      {children && <div className="mt-1">{children}</div>}
-    </div>
-  );
-}
-
-export function LoadingState({ label = 'Loading…' }: { label?: string }) {
-  return (
-    <div
-      role="status"
-      className="flex h-64 items-center justify-center gap-3 text-sm text-ink-muted"
-    >
-      <span className="h-4 w-4 animate-spin rounded-full border-2 border-edge border-t-accent" />
-      {label}
     </div>
   );
 }
