@@ -53,6 +53,8 @@ from app.version import CODE_FINGERPRINT
 
 HORIZON_H_MAX = 48.0
 HISTOGRAM_BIN_MW = 250.0
+# Minimum forecast ages (hours) for the error-vs-age curve on the Accuracy page.
+FORECAST_AGES_H = tuple(range(0, 49, 3))
 MAX_HORIZON_RANGE_DAYS = 31
 T = TypeVar("T")
 
@@ -162,6 +164,7 @@ class AnalyticsService:
         self._energy = BoundedMemo(16)
         self._vintages = BoundedMemo(32)
         self._coverage = BoundedMemo(64)
+        self._ages = BoundedMemo(32)
 
     # ----------------------------------------------------------------- caches
     @property
@@ -189,6 +192,27 @@ class AnalyticsService:
                 self.forecasts, self.hourly, deliveries, time(23, 59)
             ),
         )
+
+    def _forecast_age_curve(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        """MAE and bias when every delivery hour uses a forecast at least H hours old."""
+        first, last = from_date + timedelta(days=1), to_date + timedelta(days=1)
+
+        def compute() -> list[dict[str, Any]]:
+            points = []
+            for age in FORECAST_AGES_H:
+                m = summarize(reports.horizon_view(self.forecasts, self.hourly, first, last, age))
+                points.append(
+                    {
+                        "age_h": float(age),
+                        "mae_mw": m.mae_mw,
+                        "bias_mw": m.bias_mw,
+                        "n_matched": m.n_matched,
+                        "n_expected": m.n_expected,
+                    }
+                )
+            return points
+
+        return self._ages.get((from_date, to_date), compute)
 
     def _coverage_for(
         self, from_date: date, to_date: date, gate: time, aligned: pd.DataFrame
@@ -416,6 +440,7 @@ class AnalyticsService:
                 )
             ],
             # Every expected hour, matched or not, so gaps stay visible on the timeline.
+            "by_forecast_age": self._forecast_age_curve(from_date, to_date),
             "timeline": [
                 {
                     "start_time": t.to_pydatetime(),

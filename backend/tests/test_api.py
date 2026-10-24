@@ -292,3 +292,12 @@ def test_code_fingerprint_tracks_content_and_ignores_line_endings(tmp_path):
     assert code_fingerprint(tmp_path) == base
     (tmp_path / "a.py").write_bytes(b"x = 2\n")
     assert code_fingerprint(tmp_path) != base
+
+
+def test_accuracy_reports_error_against_forecast_age(client):
+    body = client.get("/api/v1/accuracy").json()
+    ages = body["by_forecast_age"]
+    assert [a["age_h"] for a in ages] == [float(h) for h in range(0, 49, 3)]
+    # Synthetic forecasts are truth + 500 MW at every age, so bias is exactly +500 when matched.
+    assert all(abs(a["bias_mw"] - 500) < 1e-6 for a in ages if a["n_matched"])
+    assert all(a["n_expected"] == 31 * 24 for a in ages)

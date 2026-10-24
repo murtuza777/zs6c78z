@@ -46,6 +46,14 @@ class ScatterPoint(BaseModel):
     actual_mw: float
 
 
+class ForecastAgePoint(BaseModel):
+    age_h: float = Field(description="Every hour uses the latest forecast at least this old")
+    mae_mw: float | None
+    bias_mw: float | None
+    n_matched: int
+    n_expected: int
+
+
 class TimelinePoint(BaseModel):
     start_time: datetime
     forecast_mw: float | None = Field(description="Forecast selected at the gate (null if none)")
@@ -87,6 +95,9 @@ class AccuracyResponse(BaseModel):
     histogram: list[HistogramBin]
     histogram_bin_width_mw: float
     scatter: list[ScatterPoint]
+    by_forecast_age: list[ForecastAgePoint] = Field(
+        description="Error vs minimum forecast age (0-48 h) over the same delivery days"
+    )
     timeline: list[TimelinePoint] = Field(description="Every expected hour in range, chronological")
     worst_days: list[DailyAccuracy]
     band_coverage: BandCoverage
