@@ -31,3 +31,6 @@ Thumbs.db
 .env*.local
 frontend/test-results/
 frontend/playwright-report/
+
+# Personal notes (video script), not part of the submission
+notes/
