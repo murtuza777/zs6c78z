@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { accuracy, decision } from '../test/fixtures';
+import { accuracy } from '../test/fixtures';
 import { toCsv } from './csv';
 import {
   fmtCompact,
@@ -11,15 +11,8 @@ import {
   fmtUkDateTime,
   fmtUkTime,
 } from './format';
-import { overForecastShare, readDay, vintageTradeOff } from './insights';
-import {
-  addDays,
-  daysBetween,
-  isIsoDate,
-  isValidGate,
-  parseDateParam,
-  parseNumberParam,
-} from './params';
+import { errorDirection, gateLeadRange } from './insights';
+import { addDays, isIsoDate, isValidGate, parseDateParam } from './params';
 
 describe('format', () => {
   it('signs errors explicitly with a true minus sign', () => {
@@ -72,14 +65,6 @@ describe('url params', () => {
   it('does date arithmetic in UTC', () => {
     expect(addDays('2026-01-31', 1)).toBe('2026-02-01');
     expect(addDays('2026-03-29', 1)).toBe('2026-03-30');
-    expect(daysBetween('2026-01-02', '2026-02-01')).toBe(30);
-  });
-
-  it('bounds numeric params', () => {
-    expect(parseNumberParam('24', 0, 48, 12)).toBe(24);
-    expect(parseNumberParam('60', 0, 48, 12)).toBe(12);
-    expect(parseNumberParam('abc', 0, 48, 12)).toBe(12);
-    expect(parseNumberParam('', 0, 48, 12)).toBe(12);
   });
 });
 
@@ -97,19 +82,14 @@ describe('csv', () => {
 });
 
 describe('insights', () => {
-  it('measures the share of over-forecast hours', () => {
-    expect(overForecastShare(accuracy.scatter)).toBe(75);
-    expect(overForecastShare([])).toBeNull();
+  it('splits matched hours into over- and under-forecast', () => {
+    expect(errorDirection(accuracy.scatter)).toEqual({ overPct: 75, underPct: 25 });
+    expect(errorDirection([])).toBeNull();
   });
 
-  it('compares the latest usable vintage with the best one', () => {
-    const t = vintageTradeOff(accuracy.by_vintage)!;
-    expect(t.usable.slot).toBe('09:30');
-    expect(t.best.slot).toBe('22:30');
-    expect(t.maeReductionPct).toBeCloseTo(10);
-  });
-
-  it('reads a day dominated by over-forecasting', () => {
-    expect(readDay(decision)?.tone).toBe('over');
+  it('finds the lead times of the forecasts selected at the gate', () => {
+    // Fixture hours 00-23 from the 09:30 run (hour 03 has none): 14.5 h to 37.5 h.
+    expect(gateLeadRange(accuracy.timeline!)).toEqual([14.5, 37.5]);
+    expect(gateLeadRange([])).toBeNull();
   });
 });

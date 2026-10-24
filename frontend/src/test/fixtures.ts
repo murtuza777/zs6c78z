@@ -236,6 +236,12 @@ export const accuracy: AccuracyResponse = {
     { start_time: hour(2), forecast_mw: 10, actual_mw: 5 },
     { start_time: hour(3), forecast_mw: 5, actual_mw: 10 },
   ],
+  by_forecast_age: [
+    { age_h: 0, mae_mw: 1688, bias_mw: 1481, n_matched: 744, n_expected: 744 },
+    { age_h: 12, mae_mw: 1804, bias_mw: 1601, n_matched: 744, n_expected: 744 },
+    { age_h: 24, mae_mw: 1948, bias_mw: 1738, n_matched: 744, n_expected: 744 },
+    { age_h: 48, mae_mw: 2310, bias_mw: 1791, n_matched: 589, n_expected: 744 },
+  ],
   timeline: rows.map((r, i) => ({
     start_time: r.start_time,
     forecast_mw: i === 3 ? null : r.forecast_mw,

@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../api/client';
-import { accuracy, decision, meta } from '../test/fixtures';
+import { accuracy, decision, meta, rows } from '../test/fixtures';
 import { DayAheadBrief } from './DayAheadBrief';
 import { ForecastAccuracy } from './ForecastAccuracy';
 
@@ -14,7 +14,7 @@ vi.mock('../components/charts/EChart', () => ({
 }));
 
 vi.mock('../api/client', () => ({
-  api: { meta: vi.fn(), decision: vi.fn(), accuracy: vi.fn(), horizon: vi.fn() },
+  api: { meta: vi.fn(), decision: vi.fn(), accuracy: vi.fn() },
   ApiError: class extends Error {},
 }));
 
@@ -31,150 +31,182 @@ function renderAt(path: string, element: JSX.Element, routePath: string) {
   );
 }
 
+const headline = () => screen.findByRole('region', { name: 'Forecast at gate closure' });
+
 beforeEach(() => {
   vi.mocked(api.meta).mockResolvedValue(meta);
   vi.mocked(api.decision).mockResolvedValue(decision);
   vi.mocked(api.accuracy).mockResolvedValue(accuracy);
 });
 
-describe('Day-Ahead Brief', () => {
-  it('requests the decision from URL state and shows the next-day delivery', async () => {
+describe('Day-Ahead', () => {
+  it('leads with the forecast known at the gate and how far to trust it', async () => {
     renderAt('/brief?date=2026-01-15&gate=09:50', <DayAheadBrief />, '/brief');
-    expect(await screen.findByText('Fri 16 Jan 2026')).toBeInTheDocument();
+    const h = await headline();
     expect(api.decision).toHaveBeenCalledWith('2026-01-15', '09:50');
-    expect(screen.getAllByText('240.0 GWh').length).toBeGreaterThan(0); // KPI + revision row
-    expect(screen.getByText(/Actuals are hidden/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Stale feed: values unchanged since Wed 14 Jan 18:30 UK/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText('What actually happened')).not.toBeInTheDocument();
+    expect(h).toHaveTextContent('Delivery Fri 16 Jan 2026');
+    expect(h).toHaveTextContent('240.0 GWh');
+    expect(h).toHaveTextContent('likely 168–252 GWh');
+    expect(h).toHaveTextContent('Run published Thu 15 Jan 09:30 UK, 14.5–37.5 h ahead');
+    // Error history uses only days completed before the decision.
+    expect(h).toHaveTextContent('Typical miss at this lead time: 1,650 MW an hour');
+    expect(h).toHaveTextContent('running 1,400 MW high on average');
+    expect(h).toHaveTextContent('13 January days completed before this decision');
+    expect(h).toHaveTextContent(/Stale feed: the last 5 runs repeated .* Wed 14 Jan 18:30 UK/);
+    expect(h).not.toHaveTextContent('Actual:');
   });
 
-  it('falls back to safe defaults for invalid URL params', async () => {
+  it('falls back to the latest decision and default gate for invalid URL params', async () => {
     renderAt('/brief?date=2026-03-01&gate=25:99', <DayAheadBrief />, '/brief');
-    await screen.findByText('Fri 16 Jan 2026');
-    expect(api.decision).toHaveBeenCalledWith('2026-01-31', '09:50'); // latest decision
+    await headline();
+    expect(api.decision).toHaveBeenCalledWith('2026-01-31', '09:50');
   });
 
-  it('reveals hindsight metrics and actual columns on demand', async () => {
+  it('shows actuals, error and actual columns only after Show actuals', async () => {
     const user = userEvent.setup();
     renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
-    await screen.findByText('Fri 16 Jan 2026');
-    await user.click(screen.getByRole('switch', { name: 'Reveal actuals' }));
-    expect(await screen.findByText('What actually happened')).toBeInTheDocument();
-    const table = screen.getAllByRole('table').at(-1)!;
-    expect(within(table).getAllByText('Actual').length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole('button', { name: /export hourly observations as csv/i }),
-    ).toBeInTheDocument();
+    await headline();
+    expect(screen.queryByRole('columnheader', { name: 'Actual' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: 'Show actuals' }));
+    const h = await headline();
+    // Fixture: 211.2 GWh actual vs 240.0 GWh forecast.
+    expect(h).toHaveTextContent('Actual: 211.2 GWh. The forecast was 28.8 GWh (14%) too high');
+    await user.click(screen.getByText('Hourly data'));
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Actual' })).toBeInTheDocument();
+    expect(within(table).getAllByRole('row')).toHaveLength(25);
+    expect(screen.getByRole('button', { name: /export hourly data as csv/i })).toBeInTheDocument();
   });
 
-  it('labels runs published after the gate only in hindsight mode', async () => {
-    renderAt('/brief?date=2026-01-15&reveal=1', <DayAheadBrief />, '/brief');
-    expect(await screen.findByText('after gate')).toBeInTheDocument();
-    expect(screen.getByText('selected at gate')).toBeInTheDocument();
-  });
-});
-
-describe('Forecast Accuracy', () => {
-  it('summarises findings from API data and links worst days to the brief', async () => {
-    renderAt('/accuracy?gate=09:50', <ForecastAccuracy />, '/accuracy');
-    expect(await screen.findByText(/Key findings/)).toBeInTheDocument();
-    expect(screen.getByText('75%')).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: /Open brief/ });
-    expect(link).toHaveAttribute('href', '/brief?date=2026-01-27&gate=09:50&reveal=1');
-    expect(api.accuracy).toHaveBeenCalledWith('2026-01-01', '2026-01-31', '09:50');
-  });
-});
-
-describe('decision-time integrity', () => {
-  it('leads with error known at the gate and labels the pilot figure separately', async () => {
-    renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
-    expect(await screen.findByText('Typical error, known at gate')).toBeInTheDocument();
-    expect(screen.getByText(/MAE over 13 completed days/)).toBeInTheDocument();
-    expect(screen.getByText(/all other days 2,051 MW/)).toBeInTheDocument();
-  });
-
-  it('flags partially forecast delivery days instead of implying a full day', async () => {
+  it('warns when the forecast covers only part of the day', async () => {
     vi.mocked(api.decision).mockResolvedValue({
       ...decision,
       forecast: { ...decision.forecast!, hours_with_forecast: 22, band_p10_energy_gwh: null },
     });
     renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
-    expect(await screen.findByText('Partial: 22 of 24 h forecast')).toBeInTheDocument();
+    const h = await headline();
+    expect(h).toHaveTextContent('The forecast covers only 22 of 24 hours at this gate');
+    expect(h).not.toHaveTextContent('likely');
   });
 
-  it('exposes metric explanations to assistive technology', async () => {
-    renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
-    const hint = await screen.findByRole('button', { name: 'What is Forecast wind energy?' });
-    expect(hint).toHaveAccessibleDescription(/daily energy errors/);
-  });
-
-  it('marks the active gate preset with aria-pressed', async () => {
-    renderAt('/brief?date=2026-01-15&gate=09:20', <DayAheadBrief />, '/brief');
-    await screen.findByText('Fri 16 Jan 2026');
-    const pressed = screen
-      .getAllByRole('button', { pressed: true })
-      .map((b) => b.textContent ?? '');
-    expect(pressed.some((t) => t.includes('09:20'))).toBe(true);
-  });
-});
-
-describe('accuracy findings wording', () => {
-  it('states both error directions and the balance of bias', async () => {
-    renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
-    const findings = await screen.findByText(/above actual output in/);
-    expect(findings).toHaveTextContent('above actual output in 75% of hours and below it in 25%');
-    expect(findings).toHaveTextContent('overstated wind supply');
-  });
-
-  it('says understated when the bias is negative', async () => {
-    vi.mocked(api.accuracy).mockResolvedValue({
-      ...accuracy,
-      summary: { ...accuracy.summary, bias_mw: -300, energy_error_mwh: -1000 },
+  it('says so when no January day had finished before the decision', async () => {
+    vi.mocked(api.decision).mockResolvedValue({
+      ...decision,
+      typical_error_known_at_gate: { ...decision.typical_error_known_at_gate, n_days: 0 },
     });
-    renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
-    const findings = await screen.findByText(/above actual output in/);
-    expect(findings).toHaveTextContent('understated wind supply');
-  });
-});
-
-describe('procurement what-if', () => {
-  it('turns a demand into volumes to buy, from the same rows as the table', async () => {
-    renderAt('/brief?date=2026-01-15&demand=30000', <DayAheadBrief />, '/brief');
-    // Fixture: forecast 10,000 MW and P10 7,000 MW for 23 hours (hour 05 has no band).
-    expect(await screen.findByText('Buy if wind matches the forecast')).toBeInTheDocument();
-    expect(screen.getByText('480.0 GWh')).toBeInTheDocument(); // 24 h x (30,000 - 10,000)
-    expect(screen.getByText('hourly P10 band unavailable')).toBeInTheDocument();
-    expect(screen.getByText('Buy if forecast')).toBeInTheDocument(); // table column
+    renderAt('/brief?date=2026-01-01', <DayAheadBrief />, '/brief');
+    expect(await headline()).toHaveTextContent(
+      'No January day had finished before this decision, so there is no error history yet',
+    );
   });
 
-  it('offers an example demand when none is set', async () => {
+  it('switches gate from the selector and offers a custom time', async () => {
     const user = userEvent.setup();
     renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
-    await user.click(await screen.findByRole('button', { name: /example demand/i }));
-    expect(await screen.findByText('480.0 GWh', {}, { timeout: 2000 })).toBeInTheDocument();
+    await headline();
+    await user.selectOptions(screen.getByLabelText('Gate closure'), '09:20');
+    expect(api.decision).toHaveBeenLastCalledWith('2026-01-15', '09:20');
+    await user.selectOptions(screen.getByLabelText('Gate closure'), 'custom');
+    expect(screen.getByLabelText('Custom gate closure time, UK')).toHaveValue('09:20');
+  });
+});
+
+describe('buy beyond wind', () => {
+  it('works out the volume to buy for the default demand', async () => {
+    renderAt('/brief?date=2026-01-15', <DayAheadBrief />, '/brief');
+    await headline();
+    // Fixture forecast is 10,000 MW every hour: 24 h x (30,000 - 10,000) MW = 480 GWh.
+    expect(screen.getByText('480.0 GWh')).toBeInTheDocument();
+    expect(screen.getByText(/Largest hourly need 20,000 MW at 00:00/)).toBeInTheDocument();
   });
 
-  it('compares the plans with what was actually needed only in hindsight mode', async () => {
-    renderAt('/brief?date=2026-01-15&demand=30000&reveal=1', <DayAheadBrief />, '/brief');
-    expect(await screen.findByText('Actually needed')).toBeInTheDocument();
-    // actual 8,800 MW -> need 24 x 21,200 = 508.8 GWh; forecast plan short by 28.8 GWh
+  it('adds the low-wind case when every hour has a P10', async () => {
+    vi.mocked(api.decision).mockResolvedValue({
+      ...decision,
+      rows: rows.map((r) => ({ ...r, band_p10_mw: 7000, band_p90_mw: 10500 })),
+    });
+    renderAt('/brief?date=2026-01-15&demand=40000', <DayAheadBrief />, '/brief');
+    await headline();
+    expect(screen.getByText('720.0 GWh')).toBeInTheDocument(); // 24 x 30,000
+    expect(screen.getByText('792.0 GWh')).toBeInTheDocument(); // 24 x 33,000
+    expect(screen.getByText(/Forecast uncertainty adds 72.0 GWh/)).toBeInTheDocument();
+  });
+
+  it('can be switched off with an empty demand', async () => {
+    renderAt('/brief?date=2026-01-15&demand=', <DayAheadBrief />, '/brief');
+    await headline();
+    expect(screen.getByText(/Enter the demand you have to cover/)).toBeInTheDocument();
+  });
+
+  it('compares the plan with what was actually needed only with actuals shown', async () => {
+    renderAt('/brief?date=2026-01-15&reveal=1', <DayAheadBrief />, '/brief');
+    await headline();
+    // Actual 8,800 MW: need 24 x 21,200 = 508.8 GWh, so buying on the forecast was 28.8 GWh short.
     expect(screen.getByText('508.8 GWh')).toBeInTheDocument();
-    expect(screen.getByText(/forecast plan short by 28.8 GWh/)).toBeInTheDocument();
+    expect(screen.getByText(/left you short by 28.8 GWh/)).toBeInTheDocument();
+  });
+});
+
+describe('Accuracy', () => {
+  it('shows four numbers and a takeaway computed from the API data', async () => {
+    renderAt('/accuracy?gate=09:50', <ForecastAccuracy />, '/accuracy');
+    expect(await screen.findByText('2,013 MW')).toBeInTheDocument();
+    expect(api.accuracy).toHaveBeenCalledWith('2026-01-01', '2026-01-31', '09:50');
+    expect(screen.getByText('+1,730 MW')).toBeInTheDocument();
+    expect(screen.getByText('3,000 MW')).toBeInTheDocument();
+    expect(screen.getByText('77%')).toBeInTheDocument();
+    const takeaway = screen.getByText(/Buying on it as-is/);
+    expect(takeaway).toHaveTextContent('The forecast was too high in 75% of hours');
+    expect(takeaway).toHaveTextContent('29 GWh more wind than arrived over these 2 days');
+  });
+
+  it('describes the age curve on hours scored at every age', async () => {
+    renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
+    // 48 h runs no longer cover every hour, so the comparison stops at 24 h.
+    expect(
+      await screen.findByText(
+        'MAE grows from 1,688 MW with the freshest run to 1,948 MW for runs 24 h old.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('links each worst day to the Day-Ahead view with actuals', async () => {
+    renderAt('/accuracy?gate=09:50', <ForecastAccuracy />, '/accuracy');
+    const link = await screen.findByRole('link', { name: /Open day/ });
+    expect(link).toHaveAttribute('href', '/brief?date=2026-01-27&gate=09:50&reveal=1');
+  });
+
+  it('says too low when the bias is negative, and both ways when it is small', async () => {
+    vi.mocked(api.accuracy).mockResolvedValue({
+      ...accuracy,
+      summary: { ...accuracy.summary, bias_mw: -1500, energy_error_mwh: -30000 },
+    });
+    const { unmount } = renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
+    expect(await screen.findByText(/Buying on it as-is/)).toHaveTextContent(
+      'too low in 25% of hours',
+    );
+    unmount();
+    vi.mocked(api.accuracy).mockResolvedValue({
+      ...accuracy,
+      summary: { ...accuracy.summary, bias_mw: 100 },
+    });
+    renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
+    expect(await screen.findByText(/Errors went both ways/)).toHaveTextContent(
+      'high in 75% of hours and low in 25%',
+    );
   });
 });
 
 describe('compatibility with older API responses', () => {
-  it('renders the Accuracy page when a cached response has no timeline', async () => {
+  it('renders Accuracy when a cached response has no timeline or age curve', async () => {
     // Regression: a browser-cached pre-deploy response lacked `timeline` and crashed the page.
     const older = { ...accuracy };
     delete older.timeline;
+    delete older.by_forecast_age;
     vi.mocked(api.accuracy).mockResolvedValue(older);
     renderAt('/accuracy', <ForecastAccuracy />, '/accuracy');
-    expect(await screen.findByText(/Key findings/)).toBeInTheDocument();
-    expect(
-      screen.queryByText('Forecast at the gate vs actual, every hour'),
-    ).not.toBeInTheDocument();
+    expect(await screen.findByText('2,013 MW')).toBeInTheDocument();
+    expect(screen.queryByText('Forecast at the gate vs actual')).not.toBeInTheDocument();
+    expect(screen.queryByText('Error vs forecast age')).not.toBeInTheDocument();
   });
 });

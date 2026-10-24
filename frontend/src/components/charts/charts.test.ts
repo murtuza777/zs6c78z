@@ -1,32 +1,45 @@
 import { describe, expect, it } from 'vitest';
 
 import { accuracy, decision } from '../../test/fixtures';
-import { binTone, histogramOption, vintageOption } from './accuracyCharts';
+import { AGE_SERIES, binTone, forecastAgeOption, histogramOption } from './accuracyCharts';
 import { bandSegments, buildDecisionOption, SERIES } from './decisionChart';
+import { ACTUAL_SERIES, buildTimelineOption } from './timelineChart';
 
 type Series = { name?: string; type?: string; data?: unknown[] };
+type Option = { series: Series[]; legend?: { data: string[]; selected?: Record<string, boolean> } };
 // Builders may wrap their option in { baseOption, media } for responsive layouts.
-const seriesOf = (option: unknown) =>
-  ((option as { baseOption?: { series: Series[] } }).baseOption ?? (option as { series: Series[] }))
-    .series;
+const optionOf = (option: unknown) =>
+  (option as { baseOption?: Option }).baseOption ?? (option as Option);
+const seriesOf = (option: unknown) => optionOf(option).series;
 const names = (option: unknown) => seriesOf(option).map((s) => s.name);
 
 describe('decision chart', () => {
-  it('shows only decision-time information until actuals are revealed', () => {
-    const hidden = buildDecisionOption(decision, { reveal: false, showRevisions: true });
+  it('shows only decision-time information until actuals are shown', () => {
+    const hidden = buildDecisionOption(decision, { reveal: false });
     expect(names(hidden)).toContain(SERIES.forecast);
     expect(names(hidden)).toContain(SERIES.earlier);
     expect(names(hidden)).not.toContain(SERIES.actual);
     expect(names(hidden)).not.toContain(SERIES.later); // post-gate runs are hindsight too
 
-    const revealed = buildDecisionOption(decision, { reveal: true, showRevisions: true });
+    const revealed = buildDecisionOption(decision, { reveal: true });
     expect(names(revealed)).toContain(SERIES.actual);
     expect(names(revealed)).toContain(SERIES.later);
   });
 
-  it('never draws the selected run twice and can hide revisions', () => {
-    const option = buildDecisionOption(decision, { reveal: true, showRevisions: false });
-    expect(names(option)).not.toContain(SERIES.earlier);
+  it('keeps other runs in the legend but switched off', () => {
+    const { legend } = optionOf(buildDecisionOption(decision, { reveal: true }));
+    expect(legend?.data).toEqual([
+      SERIES.forecast,
+      SERIES.band,
+      SERIES.actual,
+      SERIES.earlier,
+      SERIES.later,
+    ]);
+    expect(legend?.selected).toMatchObject({ [SERIES.earlier]: false, [SERIES.later]: false });
+  });
+
+  it('never draws the selected run twice', () => {
+    const option = buildDecisionOption(decision, { reveal: true });
     expect(names(option).filter((n) => n === SERIES.forecast)).toHaveLength(1);
   });
 
@@ -35,6 +48,14 @@ describe('decision chart', () => {
     expect(segments).toHaveLength(2); // hour 05 has no band
     expect(segments[0]).toHaveLength(5);
     expect(segments[1]).toHaveLength(18);
+  });
+
+  it('draws actuals with markers so they differ from the forecast by shape', () => {
+    const series = seriesOf(buildDecisionOption(decision, { reveal: true }));
+    const actual = series.find((s) => s.name === SERIES.actual) as { showSymbol?: boolean };
+    const forecast = series.find((s) => s.name === SERIES.forecast) as { showSymbol?: boolean };
+    expect(actual.showSymbol).toBe(true);
+    expect(forecast.showSymbol).toBe(false);
   });
 });
 
@@ -47,34 +68,34 @@ describe('accuracy charts', () => {
     expect(data.map((d) => d.value)).toEqual([3, 5]);
   });
 
-  it('distinguishes vintages available at the gate', () => {
-    const data = seriesOf(vintageOption(accuracy.by_vintage))[0]!.data as {
-      itemStyle: { color: string };
-    }[];
-    expect(new Set(data.map((d) => d.itemStyle.color)).size).toBe(2);
-  });
-});
-
-describe('non-colour encodings', () => {
-  it('draws actuals with markers so they differ from the forecast by shape', () => {
-    const series = seriesOf(buildDecisionOption(decision, { reveal: true, showRevisions: false }));
-    const actual = series.find((s) => s.name === SERIES.actual) as { showSymbol?: boolean };
-    const forecast = series.find((s) => s.name === SERIES.forecast) as { showSymbol?: boolean };
-    expect(actual.showSymbol).toBe(true);
-    expect(forecast.showSymbol).toBe(false);
-  });
-
-  it('labels the post-gate region of the vintage chart', () => {
-    const bar = seriesOf(vintageOption(accuracy.by_vintage))[0] as {
-      markArea?: { data: [{ xAxis: string; name: string }, { xAxis: string }][] };
+  it('plots MAE and bias against forecast age and shades the gate lead times', () => {
+    const option = forecastAgeOption(accuracy.by_forecast_age!, [14.5, 37.5]);
+    const [mae, bias] = seriesOf(option) as (Series & {
+      markArea?: { data: [{ xAxis: number; name: string }, { xAxis: number }][] };
+      lineStyle: { type?: string };
+    })[];
+    expect(mae!.name).toBe(AGE_SERIES.mae);
+    expect(mae!.data).toEqual([
+      [0, 1688],
+      [12, 1804],
+      [24, 1948],
+      [48, 2310],
+    ]);
+    expect(mae!.markArea?.data[0]).toEqual([
+      { xAxis: 14.5, name: 'At this gate' },
+      { xAxis: 37.5 },
+    ]);
+    // Bias differs from MAE by line style as well as colour.
+    expect(bias!.lineStyle.type).toBe('dashed');
+    const unshaded = seriesOf(forecastAgeOption(accuracy.by_forecast_age!, null))[0] as {
+      markArea?: unknown;
     };
-    expect(bar.markArea?.data[0]?.[0]).toMatchObject({ xAxis: '22:30', name: 'After gate' });
+    expect(unshaded.markArea).toBeUndefined();
   });
 });
 
 describe('January timeline', () => {
-  it('plots every hour and keeps missing forecasts as gaps', async () => {
-    const { buildTimelineOption, ACTUAL_SERIES } = await import('./timelineChart');
+  it('plots every hour and keeps missing forecasts as gaps', () => {
     const timeline = accuracy.timeline!;
     const option = buildTimelineOption(timeline, { forecastName: 'Forecast at gate' });
     const [forecast, actual] = seriesOf(option) as {

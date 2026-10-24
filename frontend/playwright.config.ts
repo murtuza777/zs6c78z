@@ -12,8 +12,9 @@ const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'dist');
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
-  // One uvicorn process serves every worker; keep concurrency modest so timings stay realistic.
-  workers: process.env.CI ? 2 : 3,
+  // One uvicorn process serves every worker. Three parallel browsers on a laptop starve it of
+  // CPU on cold caches (requests queue past the 10 s expect timeout), so stay at two.
+  workers: 2,
   expect: { timeout: 10_000 },
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

@@ -2,83 +2,89 @@ import { readFile } from 'node:fs/promises';
 
 import { expect, type Page, test } from '@playwright/test';
 
-const brief = '/brief?date=2026-01-27&gate=09:50';
+const day = '/brief?date=2026-01-27&gate=09:50';
 
 async function headline(page: Page) {
-  const text = page.getByText(/^At \d\d:\d\d UK on/);
-  await expect(text).toBeVisible();
-  return text;
+  const region = page.getByRole('region', { name: 'Forecast at gate closure' });
+  await expect(region).toBeVisible();
+  return region;
 }
 
-test.describe('Day-Ahead Brief', () => {
-  test('deep link shows the forecast available at the gate, hiding actuals until revealed', async ({
+async function exportCsv(page: Page) {
+  await page.getByText('Hourly data').click();
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: /export hourly data as csv/i }).click();
+  const download = await downloading;
+  const text = await readFile((await download.path())!, 'utf-8');
+  return { name: download.suggestedFilename(), text };
+}
+
+test.describe('Day-Ahead', () => {
+  test('deep link shows the forecast available at the gate, actuals only on request', async ({
     page,
   }) => {
-    await page.goto(brief);
-    const line = await headline(page);
-    await expect(line).toContainText('09:50 UK on Tue 27 Jan 2026');
-    await expect(line).toContainText('published Tue 27 Jan 09:30 UK');
-    await expect(line).toContainText('Wed 28 Jan 2026');
-    await expect(page.getByText('Actuals are hidden')).toBeVisible();
-    await expect(page.getByText('What actually happened')).toHaveCount(0);
-    await expect(
-      page.getByText(/Stale feed: values unchanged since Mon 26 Jan 18:30 UK/),
-    ).toBeVisible();
+    await page.goto(day);
+    const h = await headline(page);
+    await expect(h).toContainText('Delivery Wed 28 Jan 2026');
+    await expect(h).toContainText('267.2 GWh');
+    await expect(h).toContainText('Run published Tue 27 Jan 09:30 UK');
+    await expect(h).toContainText(/Stale feed: .* Mon 26 Jan 18:30 UK/);
+    await expect(h).not.toContainText('Actual:');
 
     // Keyboard: focus the switch and toggle it with Space.
-    await page.getByRole('switch', { name: 'Reveal actuals' }).focus();
+    await page.getByRole('switch', { name: 'Show actuals' }).focus();
     await page.keyboard.press('Space');
-    await expect(page.getByText('What actually happened')).toBeVisible();
     await expect(page).toHaveURL(/reveal=1/);
-    await expect(page.getByText('+129.0 GWh')).toBeVisible();
+    await expect(h).toContainText('Actual: 138.2 GWh. The forecast was 129.0 GWh');
   });
 
-  test('gate presets change which forecast run is selected', async ({ page }) => {
-    await page.goto(brief);
-    await page.getByRole('button', { name: /09:20/ }).click();
+  test('the gate selector changes which forecast run is used', async ({ page }) => {
+    await page.goto(day);
+    const gate = page.getByLabel('Gate closure', { exact: true });
+    await gate.selectOption('09:20');
     await expect(page).toHaveURL(/gate=09%3A20|gate=09:20/);
-    await expect(await headline(page)).toContainText('published Tue 27 Jan 07:30 UK');
-    await page.getByRole('button', { name: /15:30/ }).click();
-    await expect(await headline(page)).toContainText('published Tue 27 Jan 15:30 UK');
+    await expect(await headline(page)).toContainText('Run published Tue 27 Jan 07:30 UK');
+    await gate.selectOption('15:30');
+    await expect(await headline(page)).toContainText('Run published Tue 27 Jan 15:30 UK');
+    await gate.selectOption('custom');
+    await page.getByLabel('Custom gate closure time, UK').fill('12:00');
+    await expect(await headline(page)).toContainText('Run published Tue 27 Jan 11:30 UK');
   });
 
   test('date stepping moves decision and delivery days together', async ({ page }) => {
-    await page.goto(brief);
+    await page.goto(day);
     await page.getByRole('button', { name: 'Next decision day' }).click();
     await expect(page).toHaveURL(/date=2026-01-28/);
-    const line = await headline(page);
-    await expect(line).toContainText('Wed 28 Jan 2026');
-    await expect(line).toContainText('Thu 29 Jan 2026');
+    const h = await headline(page);
+    await expect(h).toContainText('Delivery Thu 29 Jan 2026');
+    await expect(h).toContainText('on Wed 28 Jan 2026');
   });
 
-  test('CSV export matches the hourly table', async ({ page }) => {
-    await page.goto(`${brief}&reveal=1`);
-    const downloading = page.waitForEvent('download');
-    await page.getByRole('button', { name: /export hourly observations as csv/i }).click();
-    const download = await downloading;
-    expect(download.suggestedFilename()).toBe(
-      'winddesk_decision_2026-01-27_gate-0950_with-actuals.csv',
-    );
-    const text = await readFile((await download.path())!, 'utf-8');
+  test('CSV export matches the hourly table and includes the plan', async ({ page }) => {
+    await page.goto(`${day}&reveal=1`);
+    const { name, text } = await exportCsv(page);
+    expect(name).toBe('winddesk_decision_2026-01-27_gate-0950_with-actuals.csv');
     expect(text.charCodeAt(0)).toBe(0xfeff);
     const lines = text.slice(1).trimEnd().split('\r\n');
     expect(lines).toHaveLength(25);
-    expect(lines[0]).toContain('start_time_uk');
+    const cols = lines[0]!.split(',');
+    const first = lines[1]!.split(',');
     expect(lines[1]).toContain('2026-01-28T00:00:00Z,2026-01-28 00:00,');
-    const rows = page.locator('table').last().locator('tbody tr');
-    await expect(rows).toHaveCount(24);
+    const forecast = Number(first[cols.indexOf('forecast_mw')]);
+    expect(Number(first[cols.indexOf('buy_if_forecast_mw')])).toBe(30000 - forecast);
+    await expect(page.locator('table tbody tr')).toHaveCount(24);
   });
 
-  test('a gate before the first run shows a partial day, not a full one', async ({ page }) => {
+  test('a gate before the first run shows a partial day and no error history', async ({ page }) => {
     await page.goto('/brief?date=2026-01-01&gate=00:00');
-    await expect(page.getByText('Partial: 22 of 24 h forecast')).toBeVisible();
-    await expect(page.getByText('No completed January days yet', { exact: false })).toBeVisible();
+    const h = await headline(page);
+    await expect(h).toContainText('The forecast covers only 22 of 24 hours at this gate');
+    await expect(h).toContainText('No January day had finished before this decision');
   });
 
-  test('invalid URL parameters fall back to safe defaults', async ({ page }) => {
+  test('invalid URL parameters fall back to the latest decision', async ({ page }) => {
     await page.goto('/brief?date=2030-01-01&gate=99:99');
-    const line = await headline(page);
-    await expect(line).toContainText('09:50 UK on Sat 31 Jan 2026'); // latest decision
+    await expect(await headline(page)).toContainText('as known at 09:50 UK on Sat 31 Jan 2026');
   });
 
   test('API failures show an actionable error that can be retried', async ({ page }) => {
@@ -89,7 +95,7 @@ test.describe('Day-Ahead Brief', () => {
         body: JSON.stringify({ title: 'Unavailable', status: 503, detail: 'Snapshot offline' }),
       }),
     );
-    await page.goto(brief);
+    await page.goto(day);
     await expect(page.getByRole('alert')).toContainText('Snapshot offline');
     await page.unroute('**/api/v1/decisions/**');
     await page.getByRole('button', { name: 'Try again' }).click();
@@ -97,55 +103,43 @@ test.describe('Day-Ahead Brief', () => {
   });
 });
 
-test.describe('Landing and procurement what-if', () => {
-  test('the app opens on the latest decision, with history known at the gate', async ({ page }) => {
-    await page.goto('/');
-    await expect(page).toHaveURL(/\/brief/);
-    const line = await headline(page);
-    await expect(line).toContainText('09:50 UK on Sat 31 Jan 2026');
-    await expect(page.getByText(/On the 29 January delivery days completed/)).toBeVisible();
-  });
-
-  test('typing a demand shows how much to buy, kept in the URL and in hindsight', async ({
+test.describe('Landing and buy beyond wind', () => {
+  test('the app opens on the latest decision with error history known at the gate', async ({
     page,
   }) => {
-    await page.goto(brief);
-    await page.getByLabel('Your demand, MW (flat across the day)').fill('30000');
-    await expect(page).toHaveURL(/demand=30000/);
-    // 24 h x 30,000 MW = 720 GWh demand; forecast wind 267.2 GWh
-    await expect(page.getByText('452.8 GWh')).toBeVisible();
-    await page.reload();
-    await expect(page.getByText('452.8 GWh')).toBeVisible();
-    await page.getByRole('switch', { name: 'Reveal actuals' }).click();
-    // The forecast plan's shortfall equals the day's energy error (+129.0 GWh).
-    await expect(page.getByText(/forecast plan short by 129\.0 GWh/)).toBeVisible();
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/brief/);
+    const h = await headline(page);
+    await expect(h).toContainText('as known at 09:50 UK on Sat 31 Jan 2026');
+    await expect(h).toContainText('29 January days completed before this decision');
   });
 
-  test('the example button and CSV include the plan', async ({ page }) => {
-    await page.goto(brief);
-    await page.getByRole('button', { name: /example demand/i }).click();
-    await expect(page).toHaveURL(/demand=30000/);
-    const downloading = page.waitForEvent('download');
-    await page.getByRole('button', { name: /export hourly observations as csv/i }).click();
-    const text = await readFile((await (await downloading).path())!, 'utf-8');
-    const [header, first] = text.slice(1).split('\r\n');
-    expect(header).toContain('buy_if_forecast_mw');
-    const cols = header!.split(',');
-    const values = first!.split(',');
-    const forecast = Number(values[cols.indexOf('forecast_mw')]);
-    expect(Number(values[cols.indexOf('buy_if_forecast_mw')])).toBe(30000 - forecast);
+  test('a demand you type is kept in the URL and checked against actuals', async ({ page }) => {
+    await page.goto(day);
+    // Default 30,000 MW: 24 h x 30,000 MW = 720 GWh demand; forecast wind 267.2 GWh.
+    await expect(page.getByText('452.8 GWh', { exact: true })).toBeVisible();
+    await page.getByLabel('Demand').fill('25000');
+    await expect(page).toHaveURL(/demand=25000/);
+    await expect(page.getByText('332.8 GWh', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByText('332.8 GWh', { exact: true })).toBeVisible();
+    await page.getByRole('switch', { name: 'Show actuals' }).click();
+    // Buying on the forecast was short by exactly the day's energy error.
+    await expect(page.getByText(/left you short by 129\.0 GWh/)).toBeVisible();
   });
 });
 
-test.describe('Forecast Accuracy', () => {
-  test('January timeline plots the gate-time forecast for every hour', async ({ page }) => {
+test.describe('Accuracy', () => {
+  test('the timeline plots the gate-time forecast for every hour of January', async ({ page }) => {
     await page.goto('/accuracy?gate=09:50');
+    await expect(page.getByText('too high in 84% of hours')).toBeVisible();
     await expect(
       page.getByRole('img', {
         name: /forecast available at 09:50 and actual wind generation, 744 hours/,
       }),
     ).toBeVisible();
-    await page.getByRole('button', { name: /09:20/ }).click();
+    await expect(page.getByRole('img', { name: /against minimum forecast age/ })).toBeVisible();
+    await page.getByLabel('Gate closure', { exact: true }).selectOption('09:20');
     await expect(
       page.getByRole('img', {
         name: /forecast available at 09:20 and actual wind generation, 744 hours/,
@@ -153,40 +147,31 @@ test.describe('Forecast Accuracy', () => {
     ).toBeVisible();
   });
 
-  test('worst-day link opens the brief in hindsight mode and back returns', async ({ page }) => {
+  test('a worst day opens in Day-Ahead with actuals, and back returns', async ({ page }) => {
     await page.goto('/accuracy?gate=09:50');
-    await expect(page.getByText(/above actual output in 84% of hours/)).toBeVisible();
     await page
-      .getByRole('link', { name: /Open brief/ })
+      .getByRole('link', { name: /Open day/ })
       .first()
       .click();
     await expect(page).toHaveURL(/\/brief\?date=2026-01-27&gate=09:50&reveal=1/);
-    await expect(page.getByText('What actually happened')).toBeVisible();
+    await expect(await headline(page)).toContainText('Actual: 138.2 GWh');
     await page.goBack();
     await expect(page).toHaveURL(/\/accuracy/);
-    await expect(page.getByText('Worst five delivery days')).toBeVisible();
+    await expect(page.getByText('Worst days')).toBeVisible();
   });
 
   test('date-range deep links survive a reload (SPA fallback)', async ({ page }) => {
     await page.goto('/accuracy?from=2026-01-05&to=2026-01-12');
-    await expect(page.getByText(/Key findings, 5 Jan to 12 Jan decisions/)).toBeVisible();
+    await expect(page.getByText(/over these 8 days/)).toBeVisible();
     await page.reload();
-    await expect(page.getByText(/Key findings, 5 Jan to 12 Jan decisions/)).toBeVisible();
-    await expect(page.getByText(/^\d+\/192$/)).toBeVisible(); // 8 decisions x 24 hours
+    await expect(page.getByText(/192 of 192 hours scored/)).toBeVisible(); // 8 days x 24 h
   });
 });
 
-test.describe('Horizon Explorer', () => {
-  test('keyboard changes to the lead-time slider are committed to the URL', async ({ page }) => {
-    await page.goto('/horizon?h=24');
-    const slider = page.getByRole('slider');
-    await slider.focus();
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
-    await expect(page).toHaveURL(/h=27/);
-    await expect(page.getByText(/publishTime <= T - 27 h/)).toBeVisible();
-  });
+test('the old Horizon Explorer route redirects to Accuracy', async ({ page }) => {
+  await page.goto('/horizon?h=24');
+  await expect(page).toHaveURL(/\/accuracy/);
+  await expect(page.getByRole('heading', { name: 'Forecast accuracy' })).toBeVisible();
 });
 
 test('unknown routes render the in-app not-found page', async ({ page }) => {
@@ -196,12 +181,7 @@ test('unknown routes render the in-app not-found page', async ({ page }) => {
 });
 
 test.describe('responsive layout @mobile', () => {
-  for (const path of [
-    '/brief?date=2026-01-27&reveal=1&demand=30000',
-    '/accuracy',
-    '/horizon',
-    '/methodology',
-  ]) {
+  for (const path of ['/brief?date=2026-01-27&reveal=1', '/accuracy', '/methodology']) {
     test(`no horizontal page overflow on ${path} @mobile`, async ({ page }) => {
       await page.goto(path);
       await expect(page.locator('main h1')).toBeVisible();
@@ -220,12 +200,13 @@ test('Accuracy still renders if the API response predates the timeline', async (
     const response = await route.fetch();
     const body = await response.json();
     delete body.timeline;
+    delete body.by_forecast_age;
     await route.fulfill({ response, json: body });
   });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/accuracy?gate=09:50');
-  await expect(page.getByText(/above actual output in 84% of hours/)).toBeVisible();
-  await expect(page.getByText('Forecast at the gate vs actual, every hour')).toHaveCount(0);
+  await expect(page.getByText('too high in 84% of hours')).toBeVisible();
+  await expect(page.getByText('Forecast at the gate vs actual')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
