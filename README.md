@@ -3,7 +3,7 @@
 A day-ahead wind forecast tool for the procurement desk of a GB electricity utility, covering
 purchase decisions made in January 2026.
 
-**App:** https://zs6c78z.vercel.app · **API docs:** https://zs6c78z.vercel.app/api/docs
+**Live app (Vercel):** https://zs6c78z.vercel.app · **API docs:** https://zs6c78z.vercel.app/api/docs
 
 The desk buys tomorrow's power in today's day-ahead auction, before gate closure, and whatever
 wind does not supply has to be bought elsewhere. WindDesk answers the two questions behind that:
@@ -74,7 +74,7 @@ shown, how short each plan was.
   backend code, so a deploy is picked up at once. The Docker image runs the same app in one
   container.
 
-## Run it
+## How to start the application
 
 ```bash
 docker compose up --build
@@ -99,22 +99,54 @@ Vitest tests (`npm test`, `npm run lint`, `npm run typecheck`) and 18 Playwright
 tests against the production build in Chrome, desktop and phone (`npm run build && npm run
 test:e2e`). CI runs all of them plus a Docker build and smoke test.
 
-## Repository
+## Files and directories
 
 ```
-api/index.py              Vercel entry point for the FastAPI app
-backend/app/domain/       market time rules, forecast selection and alignment, metrics, bands
-backend/app/services.py   per-gate cached analytics behind the API
-backend/app/api/          routes /api/v1: meta, decisions/{date}, accuracy, horizon, health
-backend/app/data/         Elexon client, validation, snapshot read/write
-backend/scripts/ingest.py reproducible ingestion into backend/data/snapshot
-backend/tests/            unit, API, ingestion and real-snapshot look-ahead tests
-frontend/src/pages/       Day-Ahead, Accuracy, Methodology
-frontend/src/components/  charts (ECharts option builders), controls, layout, UI primitives
-frontend/src/lib/         UK-time formatting, URL params, CSV export, buy-beyond-wind maths
-frontend/e2e/             Playwright tests
-analysis/                 notebook reproducing the January figures with the same domain code
-Dockerfile, docker-compose.yml, vercel.json, .github/workflows/ci.yml
+.
+├── README.md                  this guide
+├── Dockerfile                 multi-stage image: React build + FastAPI serving API and UI
+├── docker-compose.yml         `app` on localhost:8000; `ingest` (tools profile) rebuilds data
+├── vercel.json                Vercel: static frontend, Python function, rewrites, headers
+├── requirements.txt           backend dependencies for Vercel, exported from backend/uv.lock
+├── .env.example               optional settings (WINDDESK_* and VITE_* variables)
+├── .dockerignore              files left out of the Docker build context
+├── .vercelignore              files left out of the Vercel upload
+├── .gitignore, .gitattributes ignored files; LF endings keep the snapshot byte-identical
+├── .github/workflows/ci.yml   CI: backend, frontend, Playwright end-to-end, Docker smoke test
+├── api/index.py               Vercel entry point that exposes the FastAPI app
+├── analysis/                  notebook with the January figures (same domain code)
+├── docs/screenshots/          images used in this README
+├── backend/
+│   ├── pyproject.toml, uv.lock  dependencies (uv) and ruff/pytest settings
+│   ├── app/main.py            app factory: middleware, error handlers, serves the built UI
+│   ├── app/config.py          settings from WINDDESK_* environment variables
+│   ├── app/observability.py   JSON logs, request IDs, security headers, ETag caching
+│   ├── app/version.py         backend code fingerprint, used in ETags and /health
+│   ├── app/services.py        analytics service behind each endpoint, cached per gate
+│   ├── app/api/               /api/v1 routes (health, meta, decisions, accuracy, horizon),
+│   │                          dependencies, problem+json errors
+│   ├── app/schemas/           Pydantic response models: the API contract
+│   ├── app/domain/            pure logic: market.py (UK time), alignment.py (forecast at
+│   │                          the gate), metrics.py, uncertainty.py (P10–P90), reports.py
+│   ├── app/data/              Elexon client, validation, snapshot read/write
+│   ├── scripts/ingest.py      rebuilds the snapshot from the Elexon API
+│   ├── data/snapshot/         January 2026 data (CSV.gz) + manifest.json with checksums
+│   └── tests/                 pytest: unit, API, ingestion, real-data look-ahead guards
+└── frontend/
+    ├── package.json, package-lock.json, vite.config.ts, tsconfig.json
+    ├── tailwind.config.js, postcss.config.js, eslint.config.js, .prettierrc
+    ├── index.html, public/    HTML shell and favicon
+    ├── playwright.config.ts   end-to-end setup: FastAPI serving the production build
+    ├── e2e/                   Playwright tests (desktop and phone)
+    └── src/
+        ├── main.tsx, App.tsx  entry point and routes
+        ├── pages/             DayAheadBrief (Day-Ahead), ForecastAccuracy, Methodology
+        ├── components/        charts (ECharts builders), controls (date, gate), layout,
+        │                      UI primitives, ProcurementWhatIf (buy beyond wind)
+        ├── api/               typed client, TanStack Query hooks, response types
+        ├── lib/               UK-time formatting, URL params, CSV, buy-beyond-wind maths
+        ├── hooks/             URL state, debounced input, document title
+        └── test/              fixtures and setup (unit tests sit beside the code)
 ```
 
 ## Limits
